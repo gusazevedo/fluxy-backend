@@ -1,0 +1,463 @@
+openapi: 3.1.0
+
+info:
+  title: Fluxy API
+  description: Personal finance API for managing income and outcome transactions.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Auth
+    description: Registration and login
+  - name: Transactions
+    description: CRUD operations for financial transactions
+  - name: Summary
+    description: Aggregated financial data
+
+# ──────────────────────────────────────────────
+# Security
+# ──────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase JWT obtained from POST /auth/login
+
+  # ──────────────────────────────────────────────
+  # Reusable schemas
+  # ──────────────────────────────────────────────
+  schemas:
+
+    # Enums
+    TransactionType:
+      type: string
+      enum: [income, outcome]
+      description: Direction of money flow
+
+    TransactionCategory:
+      type: string
+      enum: [Bills, Health, Gym, Subscriptions, Food, Entertainment, Transport]
+      description: Category of the transaction
+
+    # Core models
+    Transaction:
+      type: object
+      required:
+        - id
+        - title
+        - value
+        - type
+        - category
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: Monthly electricity bill
+        value:
+          type: number
+          format: decimal
+          exclusiveMinimum: 0
+          example: 150.75
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        category:
+          $ref: "#/components/schemas/TransactionCategory"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # Auth payloads
+    RegisterInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 6
+          example: s3cr3tPassword
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          example: s3cr3tPassword
+
+    AuthTokens:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+
+    # Transaction payloads
+    CreateTransactionInput:
+      type: object
+      required: [title, value, type, category]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          example: Gym membership
+        value:
+          type: number
+          format: decimal
+          exclusiveMinimum: 0
+          example: 89.90
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        category:
+          $ref: "#/components/schemas/TransactionCategory"
+
+    UpdateTransactionInput:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          example: Updated title
+        value:
+          type: number
+          format: decimal
+          exclusiveMinimum: 0
+          example: 99.90
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        category:
+          $ref: "#/components/schemas/TransactionCategory"
+
+    # Summary models
+    BalanceSummary:
+      type: object
+      required: [income, outcome, balance]
+      properties:
+        income:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 5000.00
+        outcome:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 1320.50
+        balance:
+          type: number
+          format: decimal
+          example: 3679.50
+
+    CategorySummaryItem:
+      type: object
+      required: [category, type, total]
+      properties:
+        category:
+          $ref: "#/components/schemas/TransactionCategory"
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        total:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 450.00
+
+    # Error
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: UNAUTHORIZED
+        message:
+          type: string
+          example: Invalid or expired token
+
+  # ──────────────────────────────────────────────
+  # Reusable responses
+  # ──────────────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: UNAUTHORIZED
+            message: Missing or invalid Bearer token
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: NOT_FOUND
+            message: Transaction not found
+
+    UnprocessableEntity:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: VALIDATION_ERROR
+            message: "value must be greater than 0"
+
+# ──────────────────────────────────────────────
+# Paths
+# ──────────────────────────────────────────────
+paths:
+
+  # ── Auth ──────────────────────────────────────
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      description: |
+        Creates a new account via Supabase Auth.
+        Supabase sends a verification email; the user must confirm before logging in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Account created — verification email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message:
+                    type: string
+                    example: Account created. Please verify your email before logging in.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: EMAIL_IN_USE
+                message: This email is already registered
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      description: |
+        Authenticates via Supabase Auth.
+        Returns `access_token` (JWT) for use as Bearer token on protected routes.
+        Returns 401 if the email has not been verified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Authenticated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokens"
+        "401":
+          description: Invalid credentials or email not verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid_credentials:
+                  value:
+                    code: INVALID_CREDENTIALS
+                    message: Invalid email or password
+                email_not_confirmed:
+                  value:
+                    code: EMAIL_NOT_VERIFIED
+                    message: Please verify your email before logging in
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  # ── Transactions ──────────────────────────────
+
+  /transactions:
+    get:
+      tags: [Transactions]
+      summary: List authenticated user's transactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/TransactionType"
+          description: Filter by transaction type
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/TransactionCategory"
+          description: Filter by category
+      responses:
+        "200":
+          description: Array of transactions (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+    post:
+      tags: [Transactions]
+      summary: Create a new transaction
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionInput"
+      responses:
+        "201":
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /transactions/{id}:
+    put:
+      tags: [Transactions]
+      summary: Update a transaction
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTransactionInput"
+      responses:
+        "200":
+          description: Updated transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+    delete:
+      tags: [Transactions]
+      summary: Delete a transaction
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Transaction deleted (no body)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Summary ────────────────────────────────────
+
+  /summary/balance:
+    get:
+      tags: [Summary]
+      summary: Get net balance
+      description: Returns total income, total outcome, and the net balance for the authenticated user.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Balance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /summary/by-category:
+    get:
+      tags: [Summary]
+      summary: Get totals grouped by category
+      description: Returns the sum of transactions per category and type for the authenticated user.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Array of category totals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CategorySummaryItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
