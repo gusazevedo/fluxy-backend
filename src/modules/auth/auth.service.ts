@@ -3,7 +3,7 @@ import { AppError } from '../../shared/errors/app-error.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string,
+  process.env.SUPABASE_ANON_KEY as string,
 )
 
 export interface IAuthService {
@@ -13,11 +13,7 @@ export interface IAuthService {
 
 export class AuthService implements IAuthService {
   async register(email: string, password: string): Promise<{ message: string }> {
-    const { error } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: false,
-    })
+    const { error } = await supabase.auth.signUp({ email, password })
 
     if (error) {
       if (error.message.toLowerCase().includes('already')) {
@@ -33,12 +29,7 @@ export class AuthService implements IAuthService {
     email: string,
     password: string,
   ): Promise<{ access_token: string; refresh_token: string }> {
-    const anonClient = createClient(
-      process.env.SUPABASE_URL as string,
-      process.env.SUPABASE_ANON_KEY as string,
-    )
-
-    const { data, error } = await anonClient.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
       if (error.message.toLowerCase().includes('email not confirmed')) {
