@@ -3,7 +3,7 @@ import { AppError } from './app-error.js'
 
 export function errorHandler(
   error: FastifyError | AppError | Error,
-  _request: FastifyRequest,
+  request: FastifyRequest,
   reply: FastifyReply,
 ): void {
   if (error instanceof AppError) {
@@ -17,5 +17,6 @@ export function errorHandler(
     return
   }
 
+  request.log.error({ err: error }, 'Unhandled error')
   reply.status(500).send({ code: 'INTERNAL_ERROR', message: 'Internal server error' })
 }

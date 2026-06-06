@@ -41,8 +41,11 @@ components:
 
     TransactionCategory:
       type: string
-      enum: [Bills, Health, Gym, Subscriptions, Food, Entertainment, Transport]
-      description: Category of the transaction
+      enum: [Bills, Health, Gym, Subscriptions, Food, Entertainment, Transport, Salary]
+      description: >
+        Category of the transaction. The `Salary` category is reserved for
+        `income` transactions: every `income` must use `Salary`, and `Salary`
+        may not be used with `outcome` transactions.
 
     # Core models
     Transaction:
