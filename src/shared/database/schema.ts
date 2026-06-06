@@ -10,6 +10,7 @@ export const transactionCategoryEnum = pgEnum('transaction_category', [
   'Food',
   'Entertainment',
   'Transport',
+  'Salary',
 ])
 
 export const transactions = pgTable('transactions', {

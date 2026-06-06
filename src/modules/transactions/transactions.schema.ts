@@ -1,5 +1,5 @@
 const TYPES = ['income', 'outcome'] as const
-const CATEGORIES = ['Bills', 'Health', 'Gym', 'Subscriptions', 'Food', 'Entertainment', 'Transport'] as const
+const CATEGORIES = ['Bills', 'Health', 'Gym', 'Subscriptions', 'Food', 'Entertainment', 'Transport', 'Salary'] as const
 
 export const listTransactionsSchema = {
   querystring: {
