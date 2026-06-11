@@ -1,28 +1,26 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { IAuthService } from './auth.service.js'
 
-interface RegisterBody {
-  email: string
-  password: string
-}
-
-interface LoginBody {
-  email: string
-  password: string
+interface SocialLoginBody {
+  id_token: string
 }
 
 export class AuthController {
   constructor(private readonly authService: IAuthService) {}
 
-  async register(request: FastifyRequest<{ Body: RegisterBody }>, reply: FastifyReply): Promise<void> {
-    const { email, password } = request.body
-    const result = await this.authService.register(email, password)
-    reply.status(201).send(result)
+  async loginWithGoogle(
+    request: FastifyRequest<{ Body: SocialLoginBody }>,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const tokens = await this.authService.loginWithProvider('google', request.body.id_token)
+    reply.status(200).send(tokens)
   }
 
-  async login(request: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply): Promise<void> {
-    const { email, password } = request.body
-    const tokens = await this.authService.login(email, password)
+  async loginWithApple(
+    request: FastifyRequest<{ Body: SocialLoginBody }>,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const tokens = await this.authService.loginWithProvider('apple', request.body.id_token)
     reply.status(200).send(tokens)
   }
 }
