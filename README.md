@@ -40,13 +40,20 @@ SUPABASE_ANON_KEY=your-anon-key
 DATABASE_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
 ```
 
-**3. Run database migrations**
+**3. Configure social login providers**
+
+Authentication is social-only, so the Google and Apple providers must be enabled in
+the Supabase Dashboard (Authentication → Providers) before login works. For native
+apps, add your iOS/Android OAuth client IDs to the provider's authorized client list.
+See [`spec/social-login.md`](spec/social-login.md) for the full provider setup.
+
+**4. Run database migrations**
 ```bash
 npm run db:generate
 npm run db:migrate
 ```
 
-**4. Start the dev server**
+**5. Start the dev server**
 ```bash
 npm run dev
 ```
