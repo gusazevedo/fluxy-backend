@@ -12,7 +12,8 @@ Personal finance REST API for managing income and outcome transactions.
 | Fastify | v5 |
 | Drizzle ORM | v0.45 |
 | Supabase | auth + PostgreSQL |
-| ESLint | v10 |
+| Vitest | v4 |
+| ESLint | v10 (flat config) |
 
 ## Prerequisites
 
@@ -39,13 +40,20 @@ SUPABASE_ANON_KEY=your-anon-key
 DATABASE_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
 ```
 
-**3. Run database migrations**
+**3. Configure social login providers**
+
+Authentication is social-only, so the Google and Apple providers must be enabled in
+the Supabase Dashboard (Authentication → Providers) before login works. For native
+apps, add your iOS/Android OAuth client IDs to the provider's authorized client list.
+See [`spec/social-login.md`](spec/social-login.md) for the full provider setup.
+
+**4. Run database migrations**
 ```bash
 npm run db:generate
 npm run db:migrate
 ```
 
-**4. Start the dev server**
+**5. Start the dev server**
 ```bash
 npm run dev
 ```
@@ -59,6 +67,8 @@ Server starts at `http://localhost:3000`.
 | `npm run dev` | Start dev server with hot reload (tsx watch) |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Run compiled output |
+| `npm test` | Run the test suite once (Vitest) |
+| `npm run test:watch` | Run tests in watch mode |
 | `npm run lint` | Run ESLint across `src/` |
 | `npm run db:generate` | Generate Drizzle migrations from schema |
 | `npm run db:migrate` | Apply pending migrations to the database |
@@ -66,6 +76,8 @@ Server starts at `http://localhost:3000`.
 ## API
 
 The full contract is defined in [`spec/openapi.yaml`](spec/openapi.yaml). Import it into Postman or Insomnia to explore and test all endpoints.
+
+Outside production (`NODE_ENV !== 'production'`) the spec is also served as interactive Swagger UI at [`/docs`](http://localhost:3000/docs). All routes are protected by [helmet](https://github.com/fastify/fastify-helmet) headers and rate limiting (100 req/min globally, 10 req/min on auth routes), so expect `429` responses when limits are exceeded.
 
 ### Auth
 
@@ -123,6 +135,18 @@ src/
   server.ts         # Entry point
 spec/
   openapi.yaml      # API contract (written before implementation)
+```
+
+## Testing
+
+Tests run on [Vitest](https://vitest.dev) with no database required — the repository
+layer and Supabase client are mocked, and routes are exercised through Fastify's
+`inject`. Coverage includes the Salary business rule, the response contract (no
+`userId` leak), social-login token exchange, and auth/validation behavior.
+
+```bash
+npm test          # run once
+npm run test:watch
 ```
 
 ## Development Principles
