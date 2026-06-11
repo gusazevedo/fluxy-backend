@@ -36,7 +36,6 @@ Fill in your Supabase credentials in `.env`:
 PORT=3000
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 DATABASE_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
 ```
 
@@ -70,10 +69,13 @@ The full contract is defined in [`spec/openapi.yaml`](spec/openapi.yaml). Import
 
 ### Auth
 
+Social login only (native ID token flow). Send the provider `id_token` and receive
+Supabase session tokens. See [`spec/social-login.md`](spec/social-login.md).
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/auth/register` | — | Create account (triggers verification email) |
-| POST | `/auth/login` | — | Login, returns `access_token` + `refresh_token` |
+| POST | `/auth/google` | — | Exchange a Google `id_token` for `access_token` + `refresh_token` |
+| POST | `/auth/apple` | — | Exchange an Apple `id_token` for `access_token` + `refresh_token` |
 
 ### Transactions
 
@@ -100,14 +102,16 @@ All endpoints require `Authorization: Bearer <access_token>`.
 | `title` | string | Required, non-empty |
 | `value` | decimal | Required, must be > 0 |
 | `type` | enum | `income` or `outcome` |
-| `category` | enum | `Bills`, `Health`, `Gym`, `Subscriptions`, `Food`, `Entertainment`, `Transport` |
+| `category` | enum | `Bills`, `Health`, `Gym`, `Subscriptions`, `Food`, `Entertainment`, `Transport`, `Salary` |
+
+> `income` transactions must use the `Salary` category; `Salary` cannot be used with `outcome`.
 
 ## Project Structure
 
 ```
 src/
   modules/
-    auth/           # Registration and login
+    auth/           # Social login (Google, Apple)
     transactions/   # CRUD + filtering
     summary/        # Balance and category aggregations
   shared/
