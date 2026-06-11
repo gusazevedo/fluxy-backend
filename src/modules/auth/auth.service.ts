@@ -6,36 +6,30 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY as string,
 )
 
+export type SocialProvider = 'google' | 'apple'
+
+export interface AuthTokens {
+  access_token: string
+  refresh_token: string
+}
+
 export interface IAuthService {
-  register(email: string, password: string): Promise<{ message: string }>
-  login(email: string, password: string): Promise<{ access_token: string; refresh_token: string }>
+  loginWithProvider(provider: SocialProvider, idToken: string): Promise<AuthTokens>
 }
 
 export class AuthService implements IAuthService {
-  async register(email: string, password: string): Promise<{ message: string }> {
-    const { error } = await supabase.auth.signUp({ email, password })
+  async loginWithProvider(provider: SocialProvider, idToken: string): Promise<AuthTokens> {
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider,
+      token: idToken,
+    })
 
-    if (error) {
-      if (error.message.toLowerCase().includes('already')) {
-        throw new AppError('EMAIL_IN_USE', 'This email is already registered', 409)
-      }
-      throw new AppError('REGISTRATION_FAILED', error.message, 400)
-    }
-
-    return { message: 'Account created. Please verify your email before logging in.' }
-  }
-
-  async login(
-    email: string,
-    password: string,
-  ): Promise<{ access_token: string; refresh_token: string }> {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (error) {
-      if (error.message.toLowerCase().includes('email not confirmed')) {
-        throw new AppError('EMAIL_NOT_VERIFIED', 'Please verify your email before logging in', 401)
-      }
-      throw new AppError('INVALID_CREDENTIALS', 'Invalid email or password', 401)
+    if (error || !data.session) {
+      throw new AppError(
+        'INVALID_SOCIAL_TOKEN',
+        `Invalid or expired ${provider} token`,
+        401,
+      )
     }
 
     return {

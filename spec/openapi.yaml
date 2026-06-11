@@ -11,7 +11,7 @@ servers:
 
 tags:
   - name: Auth
-    description: Registration and login
+    description: Social login (Google, Apple)
   - name: Transactions
     description: CRUD operations for financial transactions
   - name: Summary
@@ -26,7 +26,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Supabase JWT obtained from POST /auth/login
+      description: Supabase JWT obtained from POST /auth/google or POST /auth/apple
 
   # ──────────────────────────────────────────────
   # Reusable schemas
@@ -82,30 +82,15 @@ components:
           format: date-time
 
     # Auth payloads
-    RegisterInput:
+    SocialLoginInput:
       type: object
-      required: [email, password]
+      required: [id_token]
       properties:
-        email:
+        id_token:
           type: string
-          format: email
-          example: user@example.com
-        password:
-          type: string
-          minLength: 6
-          example: s3cr3tPassword
-
-    LoginInput:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-          example: user@example.com
-        password:
-          type: string
-          example: s3cr3tPassword
+          minLength: 1
+          description: ID token (JWT) issued by the provider via native Sign-In.
+          example: eyJhbGciOiJSUzI1NiIsImtpZCI6...
 
     AuthTokens:
       type: object
@@ -240,57 +225,21 @@ paths:
 
   # ── Auth ──────────────────────────────────────
 
-  /auth/register:
+  /auth/google:
     post:
       tags: [Auth]
-      summary: Register a new user
+      summary: Login with Google (native ID token)
       description: |
-        Creates a new account via Supabase Auth.
-        Supabase sends a verification email; the user must confirm before logging in.
+        Exchanges a Google `id_token` (from native Google Sign-In) for a Supabase
+        session via `signInWithIdToken`. On first login Supabase provisions the user;
+        subsequent logins reuse the same id. Returns `access_token` (JWT) for use as
+        Bearer token on protected routes.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RegisterInput"
-      responses:
-        "201":
-          description: Account created — verification email sent
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [message]
-                properties:
-                  message:
-                    type: string
-                    example: Account created. Please verify your email before logging in.
-        "422":
-          $ref: "#/components/responses/UnprocessableEntity"
-        "409":
-          description: Email already registered
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                code: EMAIL_IN_USE
-                message: This email is already registered
-
-  /auth/login:
-    post:
-      tags: [Auth]
-      summary: Login with email and password
-      description: |
-        Authenticates via Supabase Auth.
-        Returns `access_token` (JWT) for use as Bearer token on protected routes.
-        Returns 401 if the email has not been verified.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LoginInput"
+              $ref: "#/components/schemas/SocialLoginInput"
       responses:
         "200":
           description: Authenticated successfully
@@ -299,20 +248,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuthTokens"
         "401":
-          description: Invalid credentials or email not verified
+          description: Invalid or expired token
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-              examples:
-                invalid_credentials:
-                  value:
-                    code: INVALID_CREDENTIALS
-                    message: Invalid email or password
-                email_not_confirmed:
-                  value:
-                    code: EMAIL_NOT_VERIFIED
-                    message: Please verify your email before logging in
+              example:
+                code: INVALID_SOCIAL_TOKEN
+                message: Invalid or expired google token
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /auth/apple:
+    post:
+      tags: [Auth]
+      summary: Login with Apple (native ID token)
+      description: |
+        Exchanges an Apple `id_token` (from native Sign in with Apple) for a Supabase
+        session via `signInWithIdToken`. On first login Supabase provisions the user;
+        subsequent logins reuse the same id. Returns `access_token` (JWT) for use as
+        Bearer token on protected routes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SocialLoginInput"
+      responses:
+        "200":
+          description: Authenticated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokens"
+        "401":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: INVALID_SOCIAL_TOKEN
+                message: Invalid or expired apple token
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
