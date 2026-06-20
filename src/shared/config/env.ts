@@ -16,8 +16,30 @@ const EnvSchema = Type.Object({
   PORT: Type.Number({ default: 3333 }),
   HOST: Type.String({ default: '0.0.0.0' }),
   LOG_LEVEL: Type.String({ default: 'info' }),
-  // Public URL of the web app; used for CORS and (later) e-mail links.
+  // Public URL of the web app; used for CORS and e-mail links.
   APP_URL: Type.String({ default: 'http://localhost:3000' }),
+
+  // --- Database ---
+  // Local dev: a Postgres connection string (driver: postgres.js).
+  DATABASE_URL: Type.Optional(Type.String()),
+  // Deployed stages: Aurora Data API (resource + secret ARNs).
+  DB_CLUSTER_ARN: Type.Optional(Type.String()),
+  DB_SECRET_ARN: Type.Optional(Type.String()),
+  DB_NAME: Type.String({ default: 'fluxy' }),
+
+  // --- Auth / tokens ---
+  ACCESS_TOKEN_TTL: Type.String({ default: '15m' }),
+  REFRESH_TOKEN_TTL_DAYS: Type.Number({ default: 30 }),
+  VERIFY_TOKEN_TTL_HOURS: Type.Number({ default: 24 }),
+  RESET_TOKEN_TTL_HOURS: Type.Number({ default: 1 }),
+  // Present in local dev; deployed stages read it from SSM (JWT_SECRET_PARAM).
+  JWT_SECRET: Type.Optional(Type.String()),
+  JWT_SECRET_PARAM: Type.Optional(Type.String()),
+
+  // --- E-mail (Resend) ---
+  EMAIL_FROM: Type.String({ default: 'Fluxy <onboarding@resend.dev>' }),
+  RESEND_API_KEY: Type.Optional(Type.String()),
+  RESEND_API_KEY_PARAM: Type.Optional(Type.String()),
 })
 
 function loadEnv(): Static<typeof EnvSchema> {

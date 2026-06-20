@@ -1,6 +1,10 @@
 import { Type, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import Fastify, { type FastifyInstance } from 'fastify'
+import { createEmailService, type EmailService } from './email/resend.js'
+import { authRoutes } from './modules/auth/auth.routes.js'
 import { env } from './shared/config/env.js'
+import { createDb, type Database } from './shared/database/client.js'
+import { authPlugin } from './shared/plugins/auth.js'
 import { errorHandlerPlugin } from './shared/plugins/error-handler.js'
 import { securityPlugin } from './shared/plugins/security.js'
 import { swaggerPlugin } from './shared/plugins/swagger.js'
@@ -8,6 +12,10 @@ import { swaggerPlugin } from './shared/plugins/swagger.js'
 export interface BuildAppOptions {
   /** Override the logger config (tests pass `false` to silence output). */
   logger?: boolean | object
+  /** Inject a database (tests pass a pglite-backed instance). */
+  db?: Database
+  /** Inject an e-mail service (tests pass a capturing fake). */
+  email?: EmailService
 }
 
 /**
@@ -15,17 +23,21 @@ export interface BuildAppOptions {
  * server in local dev (`server.ts`) and wrapped as a Lambda handler in deployed
  * stages (`lambda.ts`).
  *
- * Feature modules (auth, categories, transactions, reports) register their
- * routes here as they are implemented in later specs.
+ * Feature modules register their routes here as they are implemented; this spec
+ * (0003) adds authentication & accounts.
  */
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? { level: env.LOG_LEVEL },
   }).withTypeProvider<TypeBoxTypeProvider>()
 
+  app.decorate('db', opts.db ?? createDb())
+  app.decorate('email', opts.email ?? (await createEmailService()))
+
   await app.register(errorHandlerPlugin)
   await app.register(securityPlugin)
   await app.register(swaggerPlugin)
+  await app.register(authPlugin)
 
   app.get(
     '/health',
@@ -48,6 +60,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       timestamp: new Date().toISOString(),
     }),
   )
+
+  await app.register(authRoutes)
 
   await app.ready()
   return app
