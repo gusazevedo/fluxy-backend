@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import { createCategoryRepository } from './category.repository.js'
 import { createCategoryService } from './category.service.js'
+import { createTransactionRepository } from '../transactions/transaction.repository.js'
 import {
   CategoryListResponse,
   CategoryParams,
@@ -11,11 +12,12 @@ import {
 } from './category.schema.js'
 
 export const categoryRoutes: FastifyPluginAsyncTypebox = async (app) => {
+  const transactionRepo = createTransactionRepository(app.db)
   const service = createCategoryService({
     repo: createCategoryRepository(app.db),
-    // No transactions exist until spec 0005, so every category is "unused" and
-    // deletion is a hard delete; 0005 replaces this with a real usage check.
-    isCategoryInUse: async () => false,
+    // A category is "in use" when any transaction references it (0004 §7): used
+    // categories are archived on delete, unused ones are hard-deleted.
+    isCategoryInUse: (categoryId) => transactionRepo.existsForCategory(categoryId),
   })
 
   app.get(

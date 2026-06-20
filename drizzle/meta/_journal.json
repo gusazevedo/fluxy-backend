@@ -15,6 +15,13 @@
       "when": 1781986524709,
       "tag": "0001_amazing_wolverine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781987360467,
+      "tag": "0002_rare_kinsey_walden",
+      "breakpoints": true
     }
   ]
 }
