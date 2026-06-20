@@ -10,6 +10,7 @@ export interface AuthServiceDeps {
   repo: AuthRepository
   email: EmailService
   signAccessToken: (userId: string) => string
+  seedDefaultCategories: (userId: string) => Promise<void>
 }
 
 export interface TokenPair {
@@ -65,7 +66,7 @@ function daysFromNow(days: number): Date {
 }
 
 export function createAuthService(deps: AuthServiceDeps): AuthService {
-  const { repo, email, signAccessToken } = deps
+  const { repo, email, signAccessToken, seedDefaultCategories } = deps
 
   async function sendVerification(user: User): Promise<void> {
     const raw = generateToken()
@@ -91,6 +92,7 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
       if (!existing) {
         const passwordHash = await hashPassword(input.password)
         const user = await repo.createUser(emailAddr, passwordHash)
+        await seedDefaultCategories(user.id)
         await sendVerification(user)
       }
       return GENERIC_REGISTER

@@ -2,6 +2,7 @@ import { Type, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { createEmailService, type EmailService } from './email/resend.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
+import { categoryRoutes } from './modules/categories/category.routes.js'
 import { env } from './shared/config/env.js'
 import { createDb, type Database } from './shared/database/client.js'
 import { authPlugin } from './shared/plugins/auth.js'
@@ -62,6 +63,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   )
 
   await app.register(authRoutes)
+  await app.register(categoryRoutes)
 
   await app.ready()
   return app

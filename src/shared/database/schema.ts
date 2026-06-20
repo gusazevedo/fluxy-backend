@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { boolean, index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 /**
@@ -65,3 +66,33 @@ export type NewUser = typeof users.$inferInsert
 export type RefreshToken = typeof refreshTokens.$inferSelect
 export type AuthToken = typeof authTokens.$inferSelect
 export type AuthTokenType = (typeof authTokenType.enumValues)[number]
+
+// Shared by categories (0004) and transactions (0005).
+export const transactionKind = pgEnum('transaction_kind', ['expense', 'income'])
+export type TransactionKind = (typeof transactionKind.enumValues)[number]
+
+export const categories = pgTable(
+  'categories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    kind: transactionKind('kind').notNull(),
+    // null = active; set = archived (soft-delete, 0004 §7).
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Name unique per (user, kind) among ACTIVE categories, case-insensitive (RN-1).
+    uniqueIndex('categories_user_kind_name_active_unique')
+      .on(t.userId, t.kind, sql`lower(${t.name})`)
+      .where(sql`${t.archivedAt} is null`),
+    index('categories_user_id_idx').on(t.userId),
+  ],
+)
+
+export type Category = typeof categories.$inferSelect
+export type NewCategory = typeof categories.$inferInsert
