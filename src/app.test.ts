@@ -1,16 +1,21 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from './app.js'
+import { createFakeEmail, createTestDb } from './test/helpers.js'
 
 describe('app foundation', () => {
   let app: FastifyInstance
+  let close: () => Promise<void>
 
   beforeAll(async () => {
-    app = await buildApp({ logger: false })
+    const testDb = await createTestDb()
+    close = testDb.close
+    app = await buildApp({ logger: false, db: testDb.db, email: createFakeEmail().service })
   })
 
   afterAll(async () => {
     await app.close()
+    await close()
   })
 
   it('GET /health returns an ok payload', async () => {
