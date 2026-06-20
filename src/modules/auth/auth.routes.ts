@@ -2,6 +2,8 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import { env } from '../../shared/config/env.js'
 import { createAuthRepository } from './auth.repository.js'
 import { createAuthService } from './auth.service.js'
+import { seedDefaultCategories } from '../categories/category.defaults.js'
+import { createCategoryRepository } from '../categories/category.repository.js'
 import {
   ChangePasswordBody,
   ForgotPasswordBody,
@@ -18,10 +20,12 @@ import {
 } from './auth.schema.js'
 
 export const authRoutes: FastifyPluginAsyncTypebox = async (app) => {
+  const categoryRepo = createCategoryRepository(app.db)
   const service = createAuthService({
     repo: createAuthRepository(app.db),
     email: app.email,
     signAccessToken: (userId) => app.jwt.sign({ sub: userId }, { expiresIn: env.ACCESS_TOKEN_TTL }),
+    seedDefaultCategories: (userId) => seedDefaultCategories(categoryRepo, userId),
   })
 
   app.post(
