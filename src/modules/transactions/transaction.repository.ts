@@ -34,6 +34,10 @@ export interface TransactionRepository {
   list(userId: string, filter: ListTransactionsFilter): Promise<{ items: Transaction[]; total: number }>
   update(id: string, data: UpdateTransactionData): Promise<Transaction | undefined>
   delete(id: string): Promise<void>
+  /**
+   * Whether any transaction references the category. Not user-scoped on purpose:
+   * the caller (category deletion) already verified ownership, and ids are UUIDs.
+   */
   existsForCategory(categoryId: string): Promise<boolean>
 }
 
