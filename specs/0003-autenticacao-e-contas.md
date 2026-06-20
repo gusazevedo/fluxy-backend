@@ -6,7 +6,7 @@
 | **Autor** | Gustavo Azevedo |
 | **Criada em** | 2026-06-20 |
 | **Atualizada em** | 2026-06-20 |
-| **Versão** | 1.0 |
+| **Versão** | 1.1 |
 | **Specs relacionadas** | [0001](./0001-visao-geral-do-produto.md), [0002](./0002-arquitetura-tecnica.md) |
 
 ## 1. Contexto e Objetivo
@@ -119,8 +119,9 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
    e-mail existe); se existir, gera token `password_reset` e envia link via Resend.
 5. **Redefinir senha:** `reset-password` valida o token, grava o novo hash, marca o token como
    usado e **revoga todas as sessões** (refresh tokens) do usuário.
-6. **Trocar senha:** `change-password` exige a senha atual; ao trocar, **revoga as demais
-   sessões**.
+6. **Trocar senha:** `change-password` exige a senha atual; ao trocar, **revoga todas as
+   sessões** (refresh tokens) do usuário, que refaz login. (O endpoint é autenticado pelo
+   access token, que não identifica a sessão atual, então a revogação é total — igual ao reset.)
 
 ## 8. Requisitos Funcionais
 
