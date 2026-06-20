@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { boolean, index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, date, index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 /**
  * Database schema (Drizzle). This spec (0003) introduces only the auth/account
@@ -96,3 +96,33 @@ export const categories = pgTable(
 
 export type Category = typeof categories.$inferSelect
 export type NewCategory = typeof categories.$inferInsert
+
+export const transactions = pgTable(
+  'transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Category is required (0005/D5). Restrict deletes: used categories are
+    // archived by the app (0004 §7), never hard-deleted, so this never orphans.
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'restrict' }),
+    // Positive magnitude in cents (PD-1); the sign comes from `kind`.
+    amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
+    kind: transactionKind('kind').notNull(),
+    description: text('description'),
+    occurredAt: date('occurred_at', { mode: 'string' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('transactions_user_occurred_idx').on(t.userId, t.occurredAt),
+    index('transactions_user_category_idx').on(t.userId, t.categoryId),
+    index('transactions_user_kind_idx').on(t.userId, t.kind),
+  ],
+)
+
+export type Transaction = typeof transactions.$inferSelect
+export type NewTransaction = typeof transactions.$inferInsert
