@@ -111,4 +111,30 @@ describe('transaction service', () => {
       code: 'TRANSACTION_NOT_FOUND',
     })
   })
+
+  it('returns a nextCursor when there are more results', async () => {
+    const service = createTransactionService({
+      repo: makeTxRepo({ list: vi.fn().mockResolvedValue({ items: [makeTransaction()], hasMore: true }) }),
+      categoryRepo: makeCatRepo(),
+    })
+    const res = await service.list('user-1', { limit: 1 })
+    expect(res.items).toHaveLength(1)
+    expect(typeof res.nextCursor).toBe('string')
+  })
+
+  it('returns a null nextCursor on the last page', async () => {
+    const service = createTransactionService({
+      repo: makeTxRepo({ list: vi.fn().mockResolvedValue({ items: [makeTransaction()], hasMore: false }) }),
+      categoryRepo: makeCatRepo(),
+    })
+    const res = await service.list('user-1', { limit: 10 })
+    expect(res.nextCursor).toBeNull()
+  })
+
+  it('rejects an invalid cursor', async () => {
+    const service = createTransactionService({ repo: makeTxRepo(), categoryRepo: makeCatRepo() })
+    await expect(service.list('user-1', { limit: 10, cursor: 'YWJj' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    })
+  })
 })

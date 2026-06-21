@@ -32,7 +32,8 @@ export const ListTransactionsQuery = Type.Object({
   categoryId: Type.Optional(Uuid),
   kind: Type.Optional(Kind),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  // Opaque keyset cursor; absent = first page.
+  cursor: Type.Optional(Type.String()),
 })
 
 export const TransactionResponse = Type.Object({
@@ -47,9 +48,6 @@ export const TransactionResponse = Type.Object({
 
 export const TransactionListResponse = Type.Object({
   items: Type.Array(TransactionResponse),
-  page: Type.Object({
-    total: Type.Integer(),
-    limit: Type.Integer(),
-    offset: Type.Integer(),
-  }),
+  // Pass back as ?cursor= to fetch the next page; null = no more results.
+  nextCursor: Type.Union([Type.String(), Type.Null()]),
 })

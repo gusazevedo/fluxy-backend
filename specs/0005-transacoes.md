@@ -5,8 +5,8 @@
 | **Status** | Aprovada |
 | **Autor** | Gustavo Azevedo |
 | **Criada em** | 2026-06-20 |
-| **Atualizada em** | 2026-06-20 |
-| **Versão** | 1.0 |
+| **Atualizada em** | 2026-06-21 |
+| **Versão** | 1.1 |
 | **Specs relacionadas** | [0001](./0001-visao-geral-do-produto.md), [0002](./0002-arquitetura-tecnica.md), [0003](./0003-autenticacao-e-contas.md), [0004](./0004-categorias.md) |
 
 ## 1. Contexto e Objetivo
@@ -75,9 +75,12 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 **GET `/transactions` — query params:**
 - `from`, `to` (DATE): intervalo em `occurred_at`.
 - `categoryId` (UUID), `kind` (`expense\|income`).
-- `limit` (default **20**, máx **100**), `offset` (default **0**) — *ver D1*.
-- Ordenação padrão: `occurred_at` **desc** (mais recentes primeiro).
-- Resposta: `{ items: [...], page: { total, limit, offset } }`.
+- `limit` (default **20**, máx **100**); `cursor` (token **opaco**, opcional — ausente = primeira
+  página) — *ver D1*.
+- Ordenação: `occurred_at` **desc**, com `id` **desc** como desempate (chave estável p/ keyset).
+- Resposta: `{ items: [...], nextCursor: string | null }`. `nextCursor` é o token para buscar a
+  próxima página (passe em `?cursor=`); **`null`** quando não há mais resultados. Não retorna
+  `total` (paginação por cursor) — para contagem use o resumo (0006).
 
 **Códigos de erro:** `TRANSACTION_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `CATEGORY_KIND_MISMATCH`,
 `CATEGORY_ARCHIVED`, `INVALID_AMOUNT`, `VALIDATION_ERROR`.
@@ -141,7 +144,10 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 
 ### Defaults confirmados
 
-- **D1 — Paginação:** `offset`/`limit` (default 20, máx 100); ordenação por `occurred_at` desc.
+- **D1 — Paginação:** **cursor-based (keyset)** — `limit` (default 20, máx 100) + `cursor` opaco;
+  ordenação `(occurred_at, id)` desc; resposta `{ items, nextCursor }`.
+  _(Revisão v1.1: antes era `offset`/`limit`; migrado para scroll infinito estável a inserções/
+  remoções e eficiente em listas longas.)_
 - **D2 — Editar `kind`:** permitido, desde que a categoria corresponda ao novo tipo.
 - **D3 — Exclusão:** hard delete (transações não têm soft-delete).
 - **D4 — `description`:** opcional, até 280 caracteres.

@@ -77,15 +77,44 @@ describe('transactions', () => {
     expect(res.json().error.code).toBe('INVALID_AMOUNT')
   })
 
-  it('lists transactions with filters and pagination', async () => {
+  it('lists transactions with filters and a cursor', async () => {
     await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 500, kind: 'income', categoryId: incomeCategoryId, occurredAt: '2026-06-01' } })
     const res = await app.inject({ method: 'GET', url: '/transactions?kind=expense&limit=1', headers: auth() })
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.items.every((t: { kind: string }) => t.kind === 'expense')).toBe(true)
     expect(body.items.length).toBeLessThanOrEqual(1)
-    expect(typeof body.page.total).toBe('number')
-    expect(body.page.limit).toBe(1)
+    expect('nextCursor' in body).toBe(true)
+  })
+
+  it('paginates with the cursor without skips or duplicates', async () => {
+    const cat = await app.inject({ method: 'POST', url: '/categories', headers: auth(), payload: { name: 'Paginação', kind: 'expense' } })
+    const catId = cat.json().id
+    const created = new Set<string>()
+    for (let i = 1; i <= 5; i++) {
+      const r = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 100 * i, kind: 'expense', categoryId: catId, occurredAt: `2026-03-0${i}` } })
+      created.add(r.json().id)
+    }
+
+    const seen = new Set<string>()
+    let cursor: string | null = null
+    let pages = 0
+    do {
+      const qs = `categoryId=${catId}&limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+      const res = await app.inject({ method: 'GET', url: `/transactions?${qs}`, headers: auth() })
+      const body = res.json()
+      expect(body.items.length).toBeLessThanOrEqual(2)
+      for (const t of body.items as Array<{ id: string }>) {
+        expect(seen.has(t.id)).toBe(false)
+        seen.add(t.id)
+      }
+      cursor = body.nextCursor
+      pages += 1
+    } while (cursor && pages < 10)
+
+    expect(pages).toBe(3) // 5 items, limit 2 -> 2 + 2 + 1
+    expect(seen.size).toBe(5)
+    expect([...created].every((id) => seen.has(id))).toBe(true)
   })
 
   it('gets, updates and deletes a transaction', async () => {
