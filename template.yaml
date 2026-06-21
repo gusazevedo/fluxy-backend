@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Fluxy — personal finance API. Lambda (arm64) behind an HTTP API, talking to an
+  Aurora Serverless v2 (PostgreSQL) cluster over the RDS Data API. The Lambda is
+  intentionally OUTSIDE the VPC (Data API is reached over HTTPS), so there is no
+  NAT Gateway. See specs/0002-arquitetura-tecnica.md.
+
+Parameters:
+  Stage:
+    Type: String
+    AllowedValues: [dev, prod]
+    Default: dev
+  DbName:
+    Type: String
+    Default: fluxy
+  AppUrl:
+    Type: String
+    Default: http://localhost:3000
+    Description: Web app origin (CORS and e-mail links).
+  EmailFrom:
+    Type: String
+    Default: Fluxy <onboarding@resend.dev>
+  JwtSecretParam:
+    Type: String
+    Default: /fluxy/dev/jwt-secret
+    Description: >
+      Name of a pre-created SSM SecureString parameter holding the JWT signing
+      secret. Must live under /fluxy/<stage>/ (see IAM below). CloudFormation
+      cannot create SecureString parameters, so create it manually:
+      aws ssm put-parameter --name /fluxy/dev/jwt-secret --type SecureString --value <secret>
+  ResendApiKeyParam:
+    Type: String
+    Default: /fluxy/dev/resend-api-key
+    Description: >
+      Name of a pre-created SSM SecureString parameter holding the Resend API key.
+      Optional — without it the app logs e-mails instead of sending them.
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    Timeout: 30
+    MemorySize: 512
+
+Resources:
+  # --- Minimal VPC for Aurora only (no internet gateway, no NAT) ---
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - { Key: Name, Value: !Sub 'fluxy-${Stage}' }
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Fluxy Aurora subnets
+      SubnetIds: [!Ref SubnetA, !Ref SubnetB]
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Fluxy Aurora (no ingress; access is via the Data API over HTTPS)
+      VpcId: !Ref Vpc
+
+  # --- Aurora Serverless v2 (PostgreSQL) with Data API + scale-to-zero ---
+  DbCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      # Must be a version that supports Serverless v2 scale-to-zero (>= 16.3).
+      # Verify availability: aws rds describe-db-engine-versions --engine aurora-postgresql
+      EngineVersion: '16.6'
+      DatabaseName: !Ref DbName
+      MasterUsername: fluxy
+      ManageMasterUserPassword: true
+      EnableHttpEndpoint: true
+      StorageEncrypted: true
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VpcSecurityGroupIds: [!Ref DbSecurityGroup]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0 # scale-to-zero when idle (AD-7)
+        MaxCapacity: 2 # ACU upper bound — chosen cap for the MVP; raise if needed
+        SecondsUntilAutoPause: 3600
+
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref DbCluster
+      DBInstanceClass: db.serverless
+
+  # --- HTTP API (cheaper than REST API) ---
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # Default ($default) stage — the invoke URL is the bare ApiEndpoint.
+      Description: !Sub 'Fluxy API (${Stage})'
+
+  # --- API Lambda: runs the whole Fastify app; OUTSIDE the VPC ---
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Handler: lambda.handler
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          NODE_ENV: production
+          APP_URL: !Ref AppUrl
+          EMAIL_FROM: !Ref EmailFrom
+          DB_NAME: !Ref DbName
+          DB_CLUSTER_ARN: !GetAtt DbCluster.DBClusterArn
+          DB_SECRET_ARN: !GetAtt DbCluster.MasterUserSecret.SecretArn
+          JWT_SECRET_PARAM: !Ref JwtSecretParam
+          RESEND_API_KEY_PARAM: !Ref ResendApiKeyParam
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+                - rds-data:BeginTransaction
+                - rds-data:CommitTransaction
+                - rds-data:RollbackTransaction
+              Resource: !GetAtt DbCluster.DBClusterArn
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !GetAtt DbCluster.MasterUserSecret.SecretArn
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/fluxy/${Stage}/*'
+      Events:
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the HTTP API
+    Value: !GetAtt HttpApi.ApiEndpoint
+  ClusterArn:
+    Description: Aurora cluster ARN (for the Data API / remote migrations)
+    Value: !GetAtt DbCluster.DBClusterArn
+  SecretArn:
+    Description: Master credentials secret ARN (for the Data API / remote migrations)
+    Value: !GetAtt DbCluster.MasterUserSecret.SecretArn
+  DbName:
+    Description: Database name
+    Value: !Ref DbName

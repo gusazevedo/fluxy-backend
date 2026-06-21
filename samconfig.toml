@@ -1,0 +1,22 @@
+version = 0.1
+
+# Default environment = dev. Deploy prod with: sam deploy --config-env prod
+[default.global.parameters]
+stack_name = "fluxy-dev"
+
+[default.deploy.parameters]
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+confirm_changeset = true
+parameter_overrides = "Stage=dev JwtSecretParam=/fluxy/dev/jwt-secret ResendApiKeyParam=/fluxy/dev/resend-api-key AppUrl=http://localhost:3000"
+
+[prod.global.parameters]
+stack_name = "fluxy-prod"
+
+[prod.deploy.parameters]
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+confirm_changeset = true
+parameter_overrides = "Stage=prod JwtSecretParam=/fluxy/prod/jwt-secret ResendApiKeyParam=/fluxy/prod/resend-api-key AppUrl=https://app.example.com"
