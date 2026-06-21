@@ -96,8 +96,8 @@ Resources:
       DBSubnetGroupName: !Ref DbSubnetGroup
       VpcSecurityGroupIds: [!Ref DbSecurityGroup]
       ServerlessV2ScalingConfiguration:
-        MinCapacity: 0
-        MaxCapacity: 2
+        MinCapacity: 0 # scale-to-zero when idle (AD-7)
+        MaxCapacity: 2 # ACU upper bound — chosen cap for the MVP; raise if needed
         SecondsUntilAutoPause: 3600
 
   DbInstance:

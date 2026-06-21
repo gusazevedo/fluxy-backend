@@ -77,9 +77,13 @@ DB_NAME=fluxy \
   npm run db:migrate:remote
 ```
 
-The API base URL is the `ApiUrl` stack output. Notes: Aurora scales to **zero** when idle, so
-the first request after a pause takes ~15s to resume; adjust `EngineVersion` in `template.yaml`
-to a currently available Aurora PostgreSQL ≥ 16.3 if the deploy reports it unavailable.
+The API base URL is the `ApiUrl` stack output. Notes:
+
+- Before deploying **prod**, set `AppUrl` in `samconfig.toml` to your real web app origin — it
+  becomes the CORS allow-list in deployed stages.
+- Aurora scales to **zero** when idle, so the first request after a pause takes ~15s to resume.
+- Adjust `EngineVersion` in `template.yaml` to a currently available Aurora PostgreSQL ≥ 16.3 if
+  the deploy reports it unavailable.
 
 ## Project structure
 
