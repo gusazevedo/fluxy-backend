@@ -16,7 +16,7 @@ spec in [`specs/`](./specs/). See [CLAUDE.md](./CLAUDE.md) for the project rules
 | Vitest | unit + integration tests |
 | ESLint | v10 (flat config) |
 
-> Architecture, database (Aurora Serverless v2 + Data API) and deploy (AWS SAM) are specified in
+> Architecture, database (Neon — serverless PostgreSQL) and deploy (AWS SAM) are specified in
 > [`specs/0002-arquitetura-tecnica.md`](./specs/0002-arquitetura-tecnica.md).
 
 ## Getting started
@@ -37,23 +37,30 @@ npm run dev            # starts the API at http://localhost:3333 (docs at /docs)
 | `npm run lint` | Lint `src/` (must pass — see CLAUDE.md) |
 | `npm test` | Run the test suite |
 | `npm run deploy` | Build (esbuild) and deploy with AWS SAM |
-| `npm run db:migrate:remote` | Apply migrations to Aurora via the Data API |
+| `npm run db:migrate:remote` | Apply migrations to Neon (set `DATABASE_URL` to the direct string) |
 
 ## Deploy (AWS SAM)
 
-Serverless on AWS: Lambda (arm64) behind an HTTP API, talking to Aurora Serverless v2
-(PostgreSQL) over the RDS **Data API** — the Lambda stays **outside the VPC**, so there is
-**no NAT Gateway**. Region: `us-east-1`. Stages: `dev` (default) and `prod`.
+Serverless on AWS: Lambda (arm64) behind an HTTP API, talking to **Neon** (serverless
+PostgreSQL) over the Neon **HTTP driver** — the Lambda stays **outside any VPC**, so there is
+**no NAT Gateway, RDS or VPC**. Region: `us-east-1`. Stages: `dev` (default) and `prod`.
+
+See **[`DEPLOY.md`](./DEPLOY.md)** for the full step-by-step (AWS account, Neon project, secrets).
 
 **Prerequisites**
 
 - AWS account with credentials configured (`aws sts get-caller-identity`), region `us-east-1`.
+- A **Neon** project (region *AWS / US East — N. Virginia*); grab its pooled and direct
+  connection strings.
 - Node 22 + `make` (Docker is **not** required — the native Argon2 binary is cross-installed
   for `linux/arm64` during the build).
 - Secrets in **SSM Parameter Store** as `SecureString`, under `/fluxy/<stage>/` (CloudFormation
   cannot create SecureString parameters, so create them manually):
 
   ```bash
+  # Neon connection string (POOLED):
+  aws ssm put-parameter --region us-east-1 --type SecureString \
+    --name /fluxy/dev/database-url --value "postgresql://...-pooler.../fluxy?sslmode=require"
   aws ssm put-parameter --region us-east-1 --type SecureString \
     --name /fluxy/dev/jwt-secret --value "$(openssl rand -base64 48)"
   # optional — without it, e-mails are logged instead of sent:
@@ -68,12 +75,10 @@ npm run deploy                 # first time: sam deploy --guided
 # prod: sam build && sam deploy --config-env prod
 ```
 
-**Apply migrations** (after the first deploy), using the stack outputs:
+**Apply migrations** (after the first deploy), using the Neon **direct (unpooled)** string:
 
 ```bash
-DB_CLUSTER_ARN=<ClusterArn output> \
-DB_SECRET_ARN=<SecretArn output> \
-DB_NAME=fluxy \
+DATABASE_URL="postgresql://...HOST.../fluxy?sslmode=require" \
   npm run db:migrate:remote
 ```
 
@@ -81,9 +86,7 @@ The API base URL is the `ApiUrl` stack output. Notes:
 
 - Before deploying **prod**, set `AppUrl` in `samconfig.toml` to your real web app origin — it
   becomes the CORS allow-list in deployed stages.
-- Aurora scales to **zero** when idle, so the first request after a pause takes ~15s to resume.
-- Adjust `EngineVersion` in `template.yaml` to a currently available Aurora PostgreSQL ≥ 16.3 if
-  the deploy reports it unavailable.
+- Neon scales to **zero** when idle, so the first request after a pause takes a few seconds to resume.
 
 ## Project structure
 

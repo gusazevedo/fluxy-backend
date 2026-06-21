@@ -32,6 +32,15 @@ export async function getJwtSecret(): Promise<string> {
   return getSsmParameter(env.JWT_SECRET_PARAM)
 }
 
+/** Neon connection string: env in local dev, SSM SecureString in deployed stages. */
+export async function getDatabaseUrl(): Promise<string> {
+  if (env.DATABASE_URL) return env.DATABASE_URL
+  if (!env.DATABASE_URL_PARAM) {
+    throw new Error('DATABASE_URL (local) or DATABASE_URL_PARAM (deployed) is required')
+  }
+  return getSsmParameter(env.DATABASE_URL_PARAM)
+}
+
 /** Resend API key, if configured. Absent locally falls back to console e-mail. */
 export async function getResendApiKey(): Promise<string | undefined> {
   if (env.RESEND_API_KEY) return env.RESEND_API_KEY

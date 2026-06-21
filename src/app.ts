@@ -34,7 +34,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     logger: opts.logger ?? { level: env.LOG_LEVEL },
   }).withTypeProvider<TypeBoxTypeProvider>()
 
-  app.decorate('db', opts.db ?? createDb())
+  app.decorate('db', opts.db ?? (await createDb()))
   app.decorate('email', opts.email ?? (await createEmailService()))
 
   await app.register(errorHandlerPlugin)

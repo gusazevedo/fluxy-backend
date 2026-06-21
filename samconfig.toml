@@ -9,7 +9,7 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 resolve_s3 = true
 confirm_changeset = true
-parameter_overrides = "Stage=dev JwtSecretParam=/fluxy/dev/jwt-secret ResendApiKeyParam=/fluxy/dev/resend-api-key AppUrl=http://localhost:3000"
+parameter_overrides = "Stage=dev JwtSecretParam=/fluxy/dev/jwt-secret ResendApiKeyParam=/fluxy/dev/resend-api-key DatabaseUrlParam=/fluxy/dev/database-url AppUrl=http://localhost:3000"
 
 [prod.global.parameters]
 stack_name = "fluxy-prod"
@@ -19,4 +19,4 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 resolve_s3 = true
 confirm_changeset = true
-parameter_overrides = "Stage=prod JwtSecretParam=/fluxy/prod/jwt-secret ResendApiKeyParam=/fluxy/prod/resend-api-key AppUrl=https://app.example.com"
+parameter_overrides = "Stage=prod JwtSecretParam=/fluxy/prod/jwt-secret ResendApiKeyParam=/fluxy/prod/resend-api-key DatabaseUrlParam=/fluxy/prod/database-url AppUrl=https://app.example.com"
