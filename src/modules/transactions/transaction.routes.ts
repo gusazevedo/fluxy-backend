@@ -38,7 +38,7 @@ export const transactionRoutes: FastifyPluginAsyncTypebox = async (app) => {
         categoryId: request.query.categoryId,
         kind: request.query.kind,
         limit: request.query.limit ?? DEFAULT_LIMIT,
-        offset: request.query.offset ?? 0,
+        cursor: request.query.cursor,
       }),
   )
 

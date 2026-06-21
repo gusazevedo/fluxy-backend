@@ -1,11 +1,7 @@
 import type { CategoryRepository } from '../categories/category.repository.js'
 import type { Transaction, TransactionKind } from '../../shared/database/schema.js'
 import { AppError } from '../../shared/errors.js'
-import type {
-  ListTransactionsFilter,
-  TransactionRepository,
-  UpdateTransactionData,
-} from './transaction.repository.js'
+import type { TransactionRepository, UpdateTransactionData } from './transaction.repository.js'
 
 export interface TransactionDto {
   id: string
@@ -19,7 +15,16 @@ export interface TransactionDto {
 
 export interface TransactionPage {
   items: TransactionDto[]
-  page: { total: number; limit: number; offset: number }
+  nextCursor: string | null
+}
+
+export interface ListTransactionsInput {
+  from?: string
+  to?: string
+  categoryId?: string
+  kind?: TransactionKind
+  limit: number
+  cursor?: string
 }
 
 export interface CreateTransactionInput {
@@ -45,7 +50,7 @@ export interface TransactionServiceDeps {
 
 export interface TransactionService {
   create(userId: string, input: CreateTransactionInput): Promise<TransactionDto>
-  list(userId: string, filter: ListTransactionsFilter): Promise<TransactionPage>
+  list(userId: string, input: ListTransactionsInput): Promise<TransactionPage>
   get(userId: string, id: string): Promise<TransactionDto>
   update(userId: string, id: string, input: UpdateTransactionInput): Promise<TransactionDto>
   remove(userId: string, id: string): Promise<void>
@@ -71,6 +76,22 @@ function toDto(t: Transaction): TransactionDto {
   }
 }
 
+// Opaque keyset cursor = base64url("occurredAt|id") of the last item seen.
+function encodeCursor(occurredAt: string, id: string): string {
+  return Buffer.from(`${occurredAt}|${id}`).toString('base64url')
+}
+
+function decodeCursor(cursor: string): { occurredAt: string; id: string } {
+  const decoded = Buffer.from(cursor, 'base64url').toString('utf8')
+  const sep = decoded.indexOf('|')
+  const occurredAt = decoded.slice(0, sep)
+  const id = decoded.slice(sep + 1)
+  if (sep < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(occurredAt) || id.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Invalid cursor')
+  }
+  return { occurredAt, id }
+}
+
 export function createTransactionService(deps: TransactionServiceDeps): TransactionService {
   const { repo, categoryRepo } = deps
 
@@ -93,12 +114,19 @@ export function createTransactionService(deps: TransactionServiceDeps): Transact
       return toDto(tx)
     },
 
-    async list(userId, filter): Promise<TransactionPage> {
-      const { items, total } = await repo.list(userId, filter)
-      return {
-        items: items.map(toDto),
-        page: { total, limit: filter.limit, offset: filter.offset },
-      }
+    async list(userId, input): Promise<TransactionPage> {
+      const after = input.cursor ? decodeCursor(input.cursor) : undefined
+      const { items, hasMore } = await repo.list(userId, {
+        from: input.from,
+        to: input.to,
+        categoryId: input.categoryId,
+        kind: input.kind,
+        limit: input.limit,
+        after,
+      })
+      const last = items.at(-1)
+      const nextCursor = hasMore && last ? encodeCursor(last.occurredAt, last.id) : null
+      return { items: items.map(toDto), nextCursor }
     },
 
     async get(userId, id): Promise<TransactionDto> {

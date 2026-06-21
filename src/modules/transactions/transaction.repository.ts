@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, lt, lte, or, type SQL } from 'drizzle-orm'
 import type { Database } from '../../shared/database/client.js'
 import { type Transaction, transactions, type TransactionKind } from '../../shared/database/schema.js'
 
@@ -19,19 +19,30 @@ export interface UpdateTransactionData {
   description?: string | null
 }
 
+/** Keyset position: the (occurredAt, id) of the last item already seen. */
+export interface TransactionCursor {
+  occurredAt: string
+  id: string
+}
+
 export interface ListTransactionsFilter {
   from?: string
   to?: string
   categoryId?: string
   kind?: TransactionKind
   limit: number
-  offset: number
+  after?: TransactionCursor
+}
+
+export interface ListTransactionsResult {
+  items: Transaction[]
+  hasMore: boolean
 }
 
 export interface TransactionRepository {
   create(data: CreateTransactionData): Promise<Transaction>
   findById(userId: string, id: string): Promise<Transaction | undefined>
-  list(userId: string, filter: ListTransactionsFilter): Promise<{ items: Transaction[]; total: number }>
+  list(userId: string, filter: ListTransactionsFilter): Promise<ListTransactionsResult>
   update(id: string, data: UpdateTransactionData): Promise<Transaction | undefined>
   delete(id: string): Promise<void>
   /**
@@ -42,15 +53,6 @@ export interface TransactionRepository {
 }
 
 export function createTransactionRepository(db: Database): TransactionRepository {
-  function buildConditions(userId: string, filter: ListTransactionsFilter): SQL[] {
-    const conditions: SQL[] = [eq(transactions.userId, userId)]
-    if (filter.from) conditions.push(gte(transactions.occurredAt, filter.from))
-    if (filter.to) conditions.push(lte(transactions.occurredAt, filter.to))
-    if (filter.categoryId) conditions.push(eq(transactions.categoryId, filter.categoryId))
-    if (filter.kind) conditions.push(eq(transactions.kind, filter.kind))
-    return conditions
-  }
-
   return {
     async create(data): Promise<Transaction> {
       const rows = await db.insert(transactions).values(data).returning()
@@ -64,17 +66,34 @@ export function createTransactionRepository(db: Database): TransactionRepository
         .limit(1)
       return rows[0]
     },
-    async list(userId, filter): Promise<{ items: Transaction[]; total: number }> {
-      const where = and(...buildConditions(userId, filter))
-      const items = await db
+    async list(userId, filter): Promise<ListTransactionsResult> {
+      const conditions: SQL[] = [eq(transactions.userId, userId)]
+      if (filter.from) conditions.push(gte(transactions.occurredAt, filter.from))
+      if (filter.to) conditions.push(lte(transactions.occurredAt, filter.to))
+      if (filter.categoryId) conditions.push(eq(transactions.categoryId, filter.categoryId))
+      if (filter.kind) conditions.push(eq(transactions.kind, filter.kind))
+
+      if (filter.after) {
+        // Rows strictly "after" the cursor in (occurred_at DESC, id DESC) order.
+        const keyset = or(
+          lt(transactions.occurredAt, filter.after.occurredAt),
+          and(
+            eq(transactions.occurredAt, filter.after.occurredAt),
+            lt(transactions.id, filter.after.id),
+          ),
+        )
+        if (keyset) conditions.push(keyset)
+      }
+
+      // Fetch one extra row to know whether another page exists.
+      const rows = await db
         .select()
         .from(transactions)
-        .where(where)
-        .orderBy(desc(transactions.occurredAt), desc(transactions.createdAt))
-        .limit(filter.limit)
-        .offset(filter.offset)
-      const [totals] = await db.select({ value: count() }).from(transactions).where(where)
-      return { items, total: totals?.value ?? 0 }
+        .where(and(...conditions))
+        .orderBy(desc(transactions.occurredAt), desc(transactions.id))
+        .limit(filter.limit + 1)
+
+      return { items: rows.slice(0, filter.limit), hasMore: rows.length > filter.limit }
     },
     async update(id, data): Promise<Transaction | undefined> {
       const rows = await db
