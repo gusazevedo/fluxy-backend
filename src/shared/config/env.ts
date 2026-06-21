@@ -21,10 +21,11 @@ const EnvSchema = Type.Object({
 
   // --- Database ---
   // Local dev: a Postgres connection string (driver: postgres.js).
+  // Deployed stages: the Neon connection string, read from SSM at cold start
+  // (DATABASE_URL_PARAM) into this same variable.
   DATABASE_URL: Type.Optional(Type.String()),
-  // Deployed stages: Aurora Data API (resource + secret ARNs).
-  DB_CLUSTER_ARN: Type.Optional(Type.String()),
-  DB_SECRET_ARN: Type.Optional(Type.String()),
+  // Deployed stages: name of the SSM SecureString holding the Neon connection string.
+  DATABASE_URL_PARAM: Type.Optional(Type.String()),
   DB_NAME: Type.String({ default: 'fluxy' }),
 
   // --- Auth / tokens ---
