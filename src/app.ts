@@ -69,6 +69,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(transactionRoutes)
   await app.register(reportRoutes)
 
-  await app.ready()
+  // Intentionally not calling app.ready() here: callers start the app. The Lambda
+  // adapter (@fastify/aws-lambda) must decorate the instance before it starts, and
+  // local server (listen) / tests (inject) trigger ready() on their own.
   return app
 }
