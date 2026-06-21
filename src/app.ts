@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { createEmailService, type EmailService } from './email/resend.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
 import { categoryRoutes } from './modules/categories/category.routes.js'
+import { reportRoutes } from './modules/reports/report.routes.js'
 import { transactionRoutes } from './modules/transactions/transaction.routes.js'
 import { env } from './shared/config/env.js'
 import { createDb, type Database } from './shared/database/client.js'
@@ -66,6 +67,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(authRoutes)
   await app.register(categoryRoutes)
   await app.register(transactionRoutes)
+  await app.register(reportRoutes)
 
   await app.ready()
   return app
