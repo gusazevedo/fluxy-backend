@@ -7,8 +7,9 @@ const Email = Type.String({
 })
 const Password = Type.String({ minLength: 8, maxLength: 200 })
 const TokenString = Type.String({ minLength: 1 })
+const Name = Type.String({ minLength: 1, maxLength: 80 })
 
-export const RegisterBody = Type.Object({ email: Email, password: Password })
+export const RegisterBody = Type.Object({ name: Name, email: Email, password: Password })
 export const LoginBody = Type.Object({ email: Email, password: Password })
 export const VerifyEmailBody = Type.Object({ token: TokenString })
 export const ResendVerificationBody = Type.Object({ email: Email })
@@ -21,6 +22,8 @@ export const ChangePasswordBody = Type.Object({
   newPassword: Password,
 })
 
+export const UpdateMeBody = Type.Object({ name: Name })
+
 export const TokenPairResponse = Type.Object({
   accessToken: Type.String(),
   refreshToken: Type.String(),
@@ -32,6 +35,7 @@ export const MessageResponse = Type.Object({ message: Type.String() })
 
 export const MeResponse = Type.Object({
   id: Type.String(),
+  name: Type.String(),
   email: Type.String(),
   emailVerified: Type.Boolean(),
   createdAt: Type.String(),

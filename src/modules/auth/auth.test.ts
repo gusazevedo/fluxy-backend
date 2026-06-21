@@ -30,7 +30,7 @@ describe('auth flows', () => {
   }
 
   async function registerAndVerify(email: string, password: string): Promise<void> {
-    await app.inject({ method: 'POST', url: '/auth/register', payload: { email, password } })
+    await app.inject({ method: 'POST', url: '/auth/register', payload: { name: 'User', email, password } })
     await app.inject({
       method: 'POST',
       url: '/auth/verify-email',
@@ -42,7 +42,7 @@ describe('auth flows', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/register',
-      payload: { email: 'a@example.com', password: 'password123' },
+      payload: { name: 'Alice', email: 'a@example.com', password: 'password123' },
     })
     expect(res.statusCode).toBe(201)
     expect(sent.some((e) => e.kind === 'verify' && e.to === 'a@example.com')).toBe(true)
@@ -93,9 +93,27 @@ describe('auth flows', () => {
     })
     expect(me.statusCode).toBe(200)
     expect(me.json().email).toBe('a@example.com')
+    expect(me.json().name).toBe('Alice')
 
     const noAuth = await app.inject({ method: 'GET', url: '/me' })
     expect(noAuth.statusCode).toBe(401)
+  })
+
+  it('updates the account name via PATCH /me', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'a@example.com', password: 'password123' },
+    })
+    const { accessToken } = login.json()
+    const headers = { authorization: `Bearer ${accessToken}` }
+
+    const patched = await app.inject({ method: 'PATCH', url: '/me', headers, payload: { name: 'Alicia' } })
+    expect(patched.statusCode).toBe(200)
+    expect(patched.json().name).toBe('Alicia')
+
+    const me = await app.inject({ method: 'GET', url: '/me', headers })
+    expect(me.json().name).toBe('Alicia')
   })
 
   it('rotates refresh tokens and rejects reuse of the old one', async () => {
@@ -165,7 +183,7 @@ describe('auth flows', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/register',
-      payload: { email: 'a@example.com', password: 'whatever123' },
+      payload: { name: 'Mallory', email: 'a@example.com', password: 'whatever123' },
     })
     expect(res.statusCode).toBe(201)
 
@@ -190,7 +208,7 @@ describe('auth flows', () => {
     const short = await app.inject({
       method: 'POST',
       url: '/auth/register',
-      payload: { email: 'c@example.com', password: 'short' },
+      payload: { name: 'Carol', email: 'c@example.com', password: 'short' },
     })
     expect(short.statusCode).toBe(400)
   })

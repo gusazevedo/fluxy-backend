@@ -16,6 +16,7 @@ import {
   ResendVerificationBody,
   ResetPasswordBody,
   TokenPairResponse,
+  UpdateMeBody,
   VerifyEmailBody,
 } from './auth.schema.js'
 
@@ -108,5 +109,20 @@ export const authRoutes: FastifyPluginAsyncTypebox = async (app) => {
       },
     },
     (request) => service.getMe(request.user.sub),
+  )
+
+  app.patch(
+    '/me',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ['auth'],
+        summary: 'Update the account name',
+        security: [{ bearerAuth: [] }],
+        body: UpdateMeBody,
+        response: { 200: MeResponse },
+      },
+    },
+    (request) => service.updateProfile(request.user.sub, request.body),
   )
 }

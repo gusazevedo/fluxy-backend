@@ -13,7 +13,8 @@ import {
 export interface AuthRepository {
   findUserByEmail(email: string): Promise<User | undefined>
   findUserById(id: string): Promise<User | undefined>
-  createUser(email: string, passwordHash: string): Promise<User>
+  createUser(email: string, name: string, passwordHash: string): Promise<User>
+  updateName(userId: string, name: string): Promise<User | undefined>
   setEmailVerified(userId: string): Promise<void>
   updatePassword(userId: string, passwordHash: string): Promise<void>
   createAuthToken(userId: string, tokenHash: string, type: AuthTokenType, expiresAt: Date): Promise<void>
@@ -35,8 +36,16 @@ export function createAuthRepository(db: Database): AuthRepository {
       const rows = await db.select().from(users).where(eq(users.id, id)).limit(1)
       return rows[0]
     },
-    async createUser(email, passwordHash): Promise<User> {
-      const rows = await db.insert(users).values({ email, passwordHash }).returning()
+    async createUser(email, name, passwordHash): Promise<User> {
+      const rows = await db.insert(users).values({ email, name, passwordHash }).returning()
+      return rows[0]
+    },
+    async updateName(userId, name): Promise<User | undefined> {
+      const rows = await db
+        .update(users)
+        .set({ name, updatedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning()
       return rows[0]
     },
     async setEmailVerified(userId): Promise<void> {

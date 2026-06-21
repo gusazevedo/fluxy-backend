@@ -26,13 +26,14 @@ export interface AuthMessage {
 
 export interface MeDto {
   id: string
+  name: string
   email: string
   emailVerified: boolean
   createdAt: string
 }
 
 export interface AuthService {
-  register(input: { email: string; password: string }): Promise<AuthMessage>
+  register(input: { name: string; email: string; password: string }): Promise<AuthMessage>
   verifyEmail(token: string): Promise<AuthMessage>
   resendVerification(email: string): Promise<AuthMessage>
   login(input: { email: string; password: string }): Promise<TokenPair>
@@ -42,6 +43,7 @@ export interface AuthService {
   resetPassword(token: string, password: string): Promise<AuthMessage>
   changePassword(userId: string, currentPassword: string, newPassword: string): Promise<AuthMessage>
   getMe(userId: string): Promise<MeDto>
+  updateProfile(userId: string, input: { name: string }): Promise<MeDto>
 }
 
 // Generic responses so register / forgot-password don't reveal whether an
@@ -63,6 +65,16 @@ function hoursFromNow(hours: number): Date {
 
 function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+}
+
+function toMeDto(user: User): MeDto {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    emailVerified: user.emailVerified,
+    createdAt: user.createdAt.toISOString(),
+  }
 }
 
 export function createAuthService(deps: AuthServiceDeps): AuthService {
@@ -91,7 +103,7 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
       const existing = await repo.findUserByEmail(emailAddr)
       if (!existing) {
         const passwordHash = await hashPassword(input.password)
-        const user = await repo.createUser(emailAddr, passwordHash)
+        const user = await repo.createUser(emailAddr, input.name.trim(), passwordHash)
         await seedDefaultCategories(user.id)
         await sendVerification(user)
       }
@@ -191,12 +203,13 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
     async getMe(userId): Promise<MeDto> {
       const user = await repo.findUserById(userId)
       if (!user) throw unauthorized()
-      return {
-        id: user.id,
-        email: user.email,
-        emailVerified: user.emailVerified,
-        createdAt: user.createdAt.toISOString(),
-      }
+      return toMeDto(user)
+    },
+
+    async updateProfile(userId, input): Promise<MeDto> {
+      const user = await repo.updateName(userId, input.name.trim())
+      if (!user) throw unauthorized()
+      return toMeDto(user)
     },
   }
 }

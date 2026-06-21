@@ -12,6 +12,7 @@ export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
     // Stored lowercased; uniqueness is case-insensitive (RN-1 of 0003).
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),

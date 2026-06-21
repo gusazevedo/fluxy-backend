@@ -5,8 +5,8 @@
 | **Status** | Aprovada |
 | **Autor** | Gustavo Azevedo |
 | **Criada em** | 2026-06-20 |
-| **Atualizada em** | 2026-06-20 |
-| **Versão** | 1.1 |
+| **Atualizada em** | 2026-06-21 |
+| **Versão** | 1.2 |
 | **Specs relacionadas** | [0001](./0001-visao-geral-do-produto.md), [0002](./0002-arquitetura-tecnica.md) |
 
 ## 1. Contexto e Objetivo
@@ -33,7 +33,7 @@ isolado por usuário (PD-3).
 - **MFA / 2FA**.
 - **Gerenciamento de múltiplas sessões** (listar/revogar dispositivos individualmente).
 - **Papéis/permissões** (RBAC) — o sistema tem um único tipo de usuário.
-- Edição de perfil além de e-mail/senha (não há outros campos de perfil no MVP).
+- Edição de perfil além de **nome** e senha (não há outros campos de perfil no MVP).
 - **Exclusão de conta** (`DELETE /me`) — adiada para iteração futura.
 
 ## 4. Modelo de Dados
@@ -44,6 +44,7 @@ Convenções da 0002: UUID (PD-2), `timestamptz` (PD-6).
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | `id` | UUID | PK |
+| `name` | TEXT | Nome de exibição (obrigatório, 1–80 caracteres) |
 | `email` | TEXT | Único, armazenado em **minúsculas** (unicidade case-insensitive) |
 | `password_hash` | TEXT | **Argon2id** (AD-11) |
 | `email_verified` | BOOLEAN | default `false` |
@@ -79,7 +80,7 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 
 | Método | Rota | Auth | Descrição |
 |--------|------|------|-----------|
-| POST | `/auth/register` | público | Cria conta e dispara e-mail de verificação |
+| POST | `/auth/register` | público | Cria conta (com **nome**) e dispara e-mail de verificação |
 | POST | `/auth/verify-email` | público | Confirma o e-mail via token |
 | POST | `/auth/verify-email/resend` | público | Reenvia o e-mail de verificação |
 | POST | `/auth/login` | público | Autentica e emite tokens |
@@ -89,6 +90,7 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 | POST | `/auth/reset-password` | público | Define nova senha via token |
 | POST | `/auth/change-password` | autenticado | Troca a senha sabendo a atual |
 | GET | `/me` | autenticado | Dados da conta atual |
+| PATCH | `/me` | autenticado | Atualiza o **nome** da conta |
 
 **Códigos de erro** (exemplos): `EMAIL_IN_USE`, `INVALID_CREDENTIALS`, `EMAIL_NOT_VERIFIED`,
 `WEAK_PASSWORD`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `TOKEN_USED`, `UNAUTHORIZED`.

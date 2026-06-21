@@ -49,7 +49,7 @@ export async function authenticate(
   email: string,
   password: string,
 ): Promise<string> {
-  await app.inject({ method: 'POST', url: '/auth/register', payload: { email, password } })
+  await app.inject({ method: 'POST', url: '/auth/register', payload: { name: 'Test User', email, password } })
   const link = sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)?.link ?? ''
   const token = new URL(link).searchParams.get('token') ?? ''
   await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { token } })
