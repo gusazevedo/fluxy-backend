@@ -42,7 +42,7 @@
     "@eslint/js": "^10.0.1",
     "@types/aws-lambda": "^8.10.158",
     "@types/node": "^25.9.1",
-    "drizzle-kit": "^0.18.1",
+    "drizzle-kit": "^0.31.10",
     "esbuild": "^0.25.12",
     "eslint": "^10.4.1",
     "globals": "^17.6.0",
