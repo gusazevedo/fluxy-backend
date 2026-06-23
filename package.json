@@ -5,6 +5,9 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:up": "npm run db:up && npm run db:migrate && npm run dev",
+    "db:up": "bash scripts/ensure-docker.sh && docker compose up -d --wait",
+    "db:down": "docker compose down",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/server.js",
@@ -12,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "deploy": "sam build && sam deploy",
+    "db:migrate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
     "db:migrate:remote": "drizzle-kit migrate"
   },
   "keywords": [],
