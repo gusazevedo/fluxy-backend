@@ -21,17 +21,39 @@ spec in [`specs/`](./specs/). See [CLAUDE.md](./CLAUDE.md) for the project rules
 
 ## Getting started
 
+The local environment needs a **Postgres database** (Docker) with migrations applied, plus the
+API server. The `dev:up` script orchestrates all of it in one command:
+
 ```bash
 npm install
 cp .env.example .env   # optional: defaults work out of the box
+npm run dev:up         # starts Postgres (Docker), applies migrations, then runs the API
+```
+
+`dev:up` is equivalent to running, in order:
+
+```bash
+npm run db:up          # docker compose up -d --wait  (Postgres on localhost:5432)
+npm run db:migrate     # apply migrations to the local DB
 npm run dev            # starts the API at http://localhost:3333 (docs at /docs)
 ```
+
+Once the database is up, on later sessions you can just run `npm run dev`. Stop the database
+with `npm run db:down`.
+
+> Requires **Docker**. If the daemon isn't running, `db:up` starts it automatically (Docker
+> Desktop on macOS) and waits until it's ready. Without a `RESEND_API_KEY` in `.env`, e-mails
+> are logged to the console instead of being sent — no extra setup needed for dev.
 
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm run dev` | Run the API locally with hot reload |
+| `npm run dev:up` | One-shot local env: start Postgres (Docker), migrate, then run the API |
+| `npm run dev` | Run the API locally with hot reload (assumes the DB is already up) |
+| `npm run db:up` | Start the local Postgres container and wait until it's healthy |
+| `npm run db:down` | Stop the local Postgres container |
+| `npm run db:migrate` | Apply migrations to the local DB |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm run typecheck` | Type-check without emitting |
 | `npm run lint` | Lint `src/` (must pass — see CLAUDE.md) |
