@@ -73,7 +73,7 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
   async function sendVerification(user: User): Promise<void> {
     const raw = generateToken()
     await repo.createAuthToken(user.id, hashToken(raw), 'email_verify', hoursFromNow(env.VERIFY_TOKEN_TTL_HOURS))
-    await email.sendVerificationEmail(user.email, `${env.APP_URL}/verify-email?token=${raw}`, user.firstName)
+    await email.sendVerificationEmail(user.email, `${env.APP_URL}/auth/verify-email?token=${raw}`, user.firstName)
   }
 
   async function issueTokens(userId: string): Promise<TokenPair> {
