@@ -3,7 +3,7 @@ import { env } from '../shared/config/env.js'
 import { getResendApiKey } from '../shared/secrets.js'
 
 export interface EmailService {
-  sendVerificationEmail(to: string, link: string): Promise<void>
+  sendVerificationEmail(to: string, link: string, firstName: string): Promise<void>
   sendPasswordResetEmail(to: string, link: string): Promise<void>
 }
 
@@ -24,8 +24,8 @@ function resendService(apiKey: string): EmailService {
   }
 
   return {
-    sendVerificationEmail: (to, link) =>
-      send(to, 'Confirme seu e-mail no Fluxy', verificationHtml(link)),
+    sendVerificationEmail: (to, link, firstName) =>
+      send(to, 'Confirme seu e-mail no Fluxy', verificationHtml(link, firstName)),
     sendPasswordResetEmail: (to, link) =>
       send(to, 'Redefinição de senha no Fluxy', passwordResetHtml(link)),
   }
@@ -35,8 +35,8 @@ function resendService(apiKey: string): EmailService {
 // of sending. Tests inject their own capturing implementation.
 function consoleService(): EmailService {
   return {
-    async sendVerificationEmail(to, link): Promise<void> {
-      console.info(`[email] verification link for ${to}: ${link}`)
+    async sendVerificationEmail(to, link, firstName): Promise<void> {
+      console.info(`[email] verification link for ${firstName} <${to}>: ${link}`)
     },
     async sendPasswordResetEmail(to, link): Promise<void> {
       console.info(`[email] password reset link for ${to}: ${link}`)
@@ -49,8 +49,8 @@ export async function createEmailService(): Promise<EmailService> {
   return apiKey ? resendService(apiKey) : consoleService()
 }
 
-function verificationHtml(link: string): string {
-  return `<p>Confirme seu e-mail no Fluxy clicando no link abaixo:</p><p><a href="${link}">${link}</a></p>`
+function verificationHtml(link: string, firstName: string): string {
+  return `<p>Olá, ${firstName}!</p><p>Confirme seu e-mail no Fluxy clicando no link abaixo:</p><p><a href="${link}">${link}</a></p>`
 }
 
 function passwordResetHtml(link: string): string {

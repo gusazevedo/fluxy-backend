@@ -30,7 +30,11 @@ describe('auth flows', () => {
   }
 
   async function registerAndVerify(email: string, password: string): Promise<void> {
-    await app.inject({ method: 'POST', url: '/auth/register', payload: { email, password } })
+    await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email, firstName: 'Test', lastName: 'User', password },
+    })
     await app.inject({
       method: 'POST',
       url: '/auth/verify-email',
@@ -42,7 +46,7 @@ describe('auth flows', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/register',
-      payload: { email: 'a@example.com', password: 'password123' },
+      payload: { email: 'a@example.com', firstName: 'Ana', lastName: 'Silva', password: 'password123' },
     })
     expect(res.statusCode).toBe(201)
     expect(sent.some((e) => e.kind === 'verify' && e.to === 'a@example.com')).toBe(true)
@@ -93,6 +97,8 @@ describe('auth flows', () => {
     })
     expect(me.statusCode).toBe(200)
     expect(me.json().email).toBe('a@example.com')
+    expect(me.json().firstName).toBe('Ana')
+    expect(me.json().lastName).toBe('Silva')
 
     const noAuth = await app.inject({ method: 'GET', url: '/me' })
     expect(noAuth.statusCode).toBe(401)
@@ -165,7 +171,7 @@ describe('auth flows', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/register',
-      payload: { email: 'a@example.com', password: 'whatever123' },
+      payload: { email: 'a@example.com', firstName: 'Outro', lastName: 'Nome', password: 'whatever123' },
     })
     expect(res.statusCode).toBe(201)
 
@@ -190,8 +196,16 @@ describe('auth flows', () => {
     const short = await app.inject({
       method: 'POST',
       url: '/auth/register',
-      payload: { email: 'c@example.com', password: 'short' },
+      payload: { email: 'c@example.com', firstName: 'Curto', lastName: 'Senha', password: 'short' },
     })
     expect(short.statusCode).toBe(400)
+
+    const noName = await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email: 'd@example.com', password: 'password123' },
+    })
+    expect(noName.statusCode).toBe(400)
+    expect(noName.json().error.code).toBe('VALIDATION_ERROR')
   })
 })

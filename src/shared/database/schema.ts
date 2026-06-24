@@ -14,6 +14,8 @@ export const users = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     // Stored lowercased; uniqueness is case-insensitive (RN-1 of 0003).
     email: text('email').notNull(),
+    firstName: text('first_name').notNull(),
+    lastName: text('last_name').notNull(),
     passwordHash: text('password_hash').notNull(),
     emailVerified: boolean('email_verified').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
