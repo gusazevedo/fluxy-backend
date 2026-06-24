@@ -13,7 +13,7 @@ import {
 export interface AuthRepository {
   findUserByEmail(email: string): Promise<User | undefined>
   findUserById(id: string): Promise<User | undefined>
-  createUser(email: string, passwordHash: string): Promise<User>
+  createUser(email: string, firstName: string, lastName: string, passwordHash: string): Promise<User>
   setEmailVerified(userId: string): Promise<void>
   updatePassword(userId: string, passwordHash: string): Promise<void>
   createAuthToken(userId: string, tokenHash: string, type: AuthTokenType, expiresAt: Date): Promise<void>
@@ -35,8 +35,8 @@ export function createAuthRepository(db: Database): AuthRepository {
       const rows = await db.select().from(users).where(eq(users.id, id)).limit(1)
       return rows[0]
     },
-    async createUser(email, passwordHash): Promise<User> {
-      const rows = await db.insert(users).values({ email, passwordHash }).returning()
+    async createUser(email, firstName, lastName, passwordHash): Promise<User> {
+      const rows = await db.insert(users).values({ email, firstName, lastName, passwordHash }).returning()
       return rows[0]
     },
     async setEmailVerified(userId): Promise<void> {

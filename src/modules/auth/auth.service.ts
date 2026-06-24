@@ -27,12 +27,14 @@ export interface AuthMessage {
 export interface MeDto {
   id: string
   email: string
+  firstName: string
+  lastName: string
   emailVerified: boolean
   createdAt: string
 }
 
 export interface AuthService {
-  register(input: { email: string; password: string }): Promise<AuthMessage>
+  register(input: { email: string; firstName: string; lastName: string; password: string }): Promise<AuthMessage>
   verifyEmail(token: string): Promise<AuthMessage>
   resendVerification(email: string): Promise<AuthMessage>
   login(input: { email: string; password: string }): Promise<TokenPair>
@@ -71,7 +73,7 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
   async function sendVerification(user: User): Promise<void> {
     const raw = generateToken()
     await repo.createAuthToken(user.id, hashToken(raw), 'email_verify', hoursFromNow(env.VERIFY_TOKEN_TTL_HOURS))
-    await email.sendVerificationEmail(user.email, `${env.APP_URL}/verify-email?token=${raw}`)
+    await email.sendVerificationEmail(user.email, `${env.APP_URL}/verify-email?token=${raw}`, user.firstName)
   }
 
   async function issueTokens(userId: string): Promise<TokenPair> {
@@ -91,7 +93,7 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
       const existing = await repo.findUserByEmail(emailAddr)
       if (!existing) {
         const passwordHash = await hashPassword(input.password)
-        const user = await repo.createUser(emailAddr, passwordHash)
+        const user = await repo.createUser(emailAddr, input.firstName.trim(), input.lastName.trim(), passwordHash)
         await seedDefaultCategories(user.id)
         await sendVerification(user)
       }
@@ -194,6 +196,8 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
       return {
         id: user.id,
         email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
         emailVerified: user.emailVerified,
         createdAt: user.createdAt.toISOString(),
       }
