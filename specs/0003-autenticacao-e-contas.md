@@ -64,13 +64,14 @@ Convenções da 0002: UUID (PD-2), `timestamptz` (PD-6).
 |-------|------|-------|
 | `id` | UUID | PK |
 | `user_id` | UUID | FK → `users` (on delete cascade) |
-| `token_hash` | TEXT | **Hash** do token enviado por e-mail |
+| `token_hash` | TEXT | **Hash** do token/código enviado por e-mail |
 | `type` | ENUM | `email_verify` \| `password_reset` |
 | `expires_at` | timestamptz | |
 | `used_at` | timestamptz | marca uso único |
+| `attempts` | integer | tentativas erradas de verificação (default `0`); trava o código no limite |
 | `created_at` | timestamptz | default `now()` |
 
-> Tokens de alta entropia (refresh, verificação, reset) são guardados como **hash SHA-256**
+> Tokens de alta entropia (refresh, reset) e o código de verificação são guardados como **hash SHA-256**
 > (rápido e suficiente para segredos aleatórios). **Argon2id** é usado apenas para **senhas**.
 
 ## 5. Endpoints
@@ -80,7 +81,7 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 | Método | Rota | Auth | Descrição |
 |--------|------|------|-----------|
 | POST | `/auth/register` | público | Cria conta e dispara e-mail de verificação |
-| POST | `/auth/verify-email` | público | Confirma o e-mail via token |
+| POST | `/auth/verify-email` | público | Confirma o e-mail via `{ email, code }` (OTP de 6 dígitos) |
 | POST | `/auth/verify-email/resend` | público | Reenvia o e-mail de verificação |
 | POST | `/auth/login` | público | Autentica e emite tokens |
 | POST | `/auth/refresh` | refresh token | Rotaciona o par de tokens |
@@ -104,14 +105,17 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 - **Logout** revoga o refresh token corrente.
 - **Entrega do refresh token**: retornado **no corpo da resposta** (JSON), guardado pelo web
   app. Cookie httpOnly só será viável com domínio próprio same-site (fora do MVP).
-- **Tokens de e-mail** — verificação: TTL **default 24h**; reset: TTL **default 1h**; ambos de
-  **uso único** (`used_at`).
+- **Tokens de e-mail** — verificação: **código OTP de 6 dígitos**, TTL **default 5min**, com
+  **limite de tentativas** (`attempts`, default 5) e **reenvio** com cooldown (default 60s);
+  reset: token de link, TTL **default 1h**. Ambos de **uso único** (`used_at`).
 
 ## 7. Fluxos Principais
 
-1. **Cadastro + verificação:** `register` cria o usuário (`email_verified=false`), gera token
-   `email_verify`, envia link `APP_URL/verify-email?token=…` via Resend. O web app submete o
-   token em `verify-email`, que marca o e-mail como verificado.
+1. **Cadastro + verificação:** `register` cria o usuário (`email_verified=false`), gera um
+   **código OTP de 6 dígitos** (`email_verify`) e o envia por e-mail via Resend. O app submete
+   `{ email, code }` em `verify-email`, que marca o e-mail como verificado. Código errado
+   incrementa `attempts`; ao atingir o limite, o código é travado. `verify-email/resend` gera um
+   novo código (invalidando o anterior), respeitando o cooldown — sem revelar se o e-mail existe.
 2. **Login:** valida senha (Argon2id) e **exige e-mail verificado** — se não verificado,
    retorna `EMAIL_NOT_VERIFIED`. Em sucesso, emite access + refresh.
 3. **Refresh:** valida o refresh token, rotaciona e devolve novo par.
@@ -127,7 +131,8 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 
 - **RF-1** Usuário cria conta com e-mail único e senha válida.
 - **RF-2** Sistema envia e-mail de verificação no cadastro e permite reenviar.
-- **RF-3** Usuário confirma o e-mail via token de uso único e expirável.
+- **RF-3** Usuário confirma o e-mail via **código OTP de 6 dígitos**, de uso único, expirável e
+  com limite de tentativas.
 - **RF-4** Usuário **com e-mail verificado** autentica com e-mail e senha e recebe access + refresh tokens.
 - **RF-5** Usuário renova os tokens via refresh (com rotação) e faz logout (revogação).
 - **RF-6** Usuário solicita recuperação de senha e redefine via token enviado por e-mail.
@@ -138,8 +143,8 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 
 - **RNF-1** Senhas com **Argon2id**; nunca em texto puro; nunca retornadas.
 - **RNF-2** Refresh/verify/reset guardados como **hash**; valor cru só trafega uma vez.
-- **RNF-3** `forgot-password` e `register` **não revelam** existência de e-mail (respostas
-  genéricas / mesmo tempo de resposta na medida do possível).
+- **RNF-3** `forgot-password`, `register`, `verify-email` e `verify-email/resend` **não revelam**
+  existência de e-mail (respostas genéricas / mesmo tempo de resposta na medida do possível).
 - **RNF-4** Endpoints de `login`, `forgot-password` e `reset-password` são **rate-limited**
   (AD/D2 da 0002).
 - **RNF-5** Comparações de token/senha **timing-safe**.
@@ -151,14 +156,15 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 
 - **RN-1** E-mail é **único** (case-insensitive).
 - **RN-2** Política de senha: **mínimo 8 caracteres**, sem complexidade obrigatória (orientação NIST).
-- **RN-3** Token expirado/usado/inválido ⇒ erro específico, sem efeito colateral.
+- **RN-3** Token/código expirado, usado ou inválido ⇒ erro apropriado, sem efeito colateral. O
+  código OTP é **travado** ao exceder o limite de tentativas (`VERIFY_OTP_MAX_ATTEMPTS`).
 - **RN-4** Reset e troca de senha **revogam sessões** (refresh tokens) existentes.
 - **RN-5** Login só é permitido com **e-mail verificado**; caso contrário, `EMAIL_NOT_VERIFIED`.
 
 ## 11. Critérios de Aceitação
 
 - **CA-1** Não é possível cadastrar dois usuários com o mesmo e-mail (case-insensitive).
-- **CA-2** Após `register`, um e-mail de verificação é disparado; o token confirma o e-mail.
+- **CA-2** Após `register`, um e-mail com código OTP de 6 dígitos é disparado; o código confirma o e-mail.
 - **CA-3** Login com credenciais corretas retorna access + refresh; com incorretas, `INVALID_CREDENTIALS`.
 - **CA-4** Um access token expirado é rejeitado; o refresh gera um novo par e **invalida** o refresh anterior.
 - **CA-5** `forgot-password` responde igual para e-mail existente e inexistente.
@@ -177,7 +183,7 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 
 ### Defaults confirmados
 
-- **D1 — TTLs:** access **15min**, refresh **30 dias**, verificação **24h**, reset **1h**.
+- **D1 — TTLs:** access **15min**, refresh **30 dias**, verificação (OTP) **5min**, reset **1h**.
 - **D2 — Hash de tokens:** SHA-256 para tokens de alta entropia; Argon2id para senhas.
 - **D3 — `change-password` no MVP:** incluído.
 

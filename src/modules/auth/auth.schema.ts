@@ -7,6 +7,7 @@ const Email = Type.String({
 })
 const Password = Type.String({ minLength: 8, maxLength: 200 })
 const TokenString = Type.String({ minLength: 1 })
+const OtpCode = Type.String({ pattern: '^[0-9]{6}$' })
 const Name = Type.String({ minLength: 1, maxLength: 100 })
 
 export const RegisterBody = Type.Object({
@@ -16,7 +17,7 @@ export const RegisterBody = Type.Object({
   password: Password,
 })
 export const LoginBody = Type.Object({ email: Email, password: Password })
-export const VerifyEmailBody = Type.Object({ token: TokenString })
+export const VerifyEmailBody = Type.Object({ email: Email, code: OtpCode })
 export const ResendVerificationBody = Type.Object({ email: Email })
 export const RefreshBody = Type.Object({ refreshToken: TokenString })
 export const LogoutBody = Type.Object({ refreshToken: TokenString })

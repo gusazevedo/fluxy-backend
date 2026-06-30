@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { bigint, boolean, date, index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 /**
  * Database schema (Drizzle). This spec (0003) introduces only the auth/account
@@ -50,15 +50,22 @@ export const authTokens = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // SHA-256 hash of the token e-mailed to the user.
+    // SHA-256 hash of the token (password_reset) or OTP code (email_verify)
+    // e-mailed to the user.
     tokenHash: text('token_hash').notNull(),
     type: authTokenType('type').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
+    // Failed verification attempts against this token; OTP codes are locked once
+    // this reaches VERIFY_OTP_MAX_ATTEMPTS.
+    attempts: integer('attempts').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
+  // tokenHash is not unique: a 6-digit OTP has a small space and two users may
+  // hold the same active code. email_verify is looked up by (userId, type);
+  // password_reset tokens stay effectively unique by their entropy.
   (t) => [
-    uniqueIndex('auth_tokens_token_hash_unique').on(t.tokenHash),
+    index('auth_tokens_token_hash_idx').on(t.tokenHash),
     index('auth_tokens_user_id_type_idx').on(t.userId, t.type),
   ],
 )

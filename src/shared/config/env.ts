@@ -31,7 +31,10 @@ const EnvSchema = Type.Object({
   // --- Auth / tokens ---
   ACCESS_TOKEN_TTL: Type.String({ default: '15m' }),
   REFRESH_TOKEN_TTL_DAYS: Type.Number({ default: 30 }),
-  VERIFY_TOKEN_TTL_HOURS: Type.Number({ default: 24 }),
+  // E-mail verification OTP (6-digit code).
+  VERIFY_OTP_TTL_MINUTES: Type.Number({ default: 5 }),
+  VERIFY_OTP_MAX_ATTEMPTS: Type.Number({ default: 5 }),
+  VERIFY_OTP_RESEND_COOLDOWN_SECONDS: Type.Number({ default: 60 }),
   RESET_TOKEN_TTL_HOURS: Type.Number({ default: 1 }),
   // Present in local dev; deployed stages read it from SSM (JWT_SECRET_PARAM).
   JWT_SECRET: Type.Optional(Type.String()),

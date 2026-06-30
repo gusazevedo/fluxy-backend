@@ -22,15 +22,17 @@ export async function createTestDb(): Promise<TestDb> {
 export interface SentEmail {
   kind: 'verify' | 'reset'
   to: string
-  link: string
+  // verification e-mails carry an OTP `code`; password resets carry a `link`.
+  code?: string
+  link?: string
 }
 
-/** Capturing e-mail service so tests can read the verification/reset links. */
+/** Capturing e-mail service so tests can read the verification codes / reset links. */
 export function createFakeEmail(): { service: EmailService; sent: SentEmail[] } {
   const sent: SentEmail[] = []
   const service: EmailService = {
-    async sendVerificationEmail(to, link): Promise<void> {
-      sent.push({ kind: 'verify', to, link })
+    async sendVerificationEmail(to, code): Promise<void> {
+      sent.push({ kind: 'verify', to, code })
     },
     async sendPasswordResetEmail(to, link): Promise<void> {
       sent.push({ kind: 'reset', to, link })
@@ -41,7 +43,7 @@ export function createFakeEmail(): { service: EmailService; sent: SentEmail[] } 
 
 /**
  * Registers, verifies and logs in a user, returning the access token. Reads the
- * verification link from the capturing e-mail service.
+ * verification code from the capturing e-mail service.
  */
 export async function authenticate(
   app: FastifyInstance,
@@ -54,9 +56,8 @@ export async function authenticate(
     url: '/auth/register',
     payload: { email, firstName: 'Test', lastName: 'User', password },
   })
-  const link = sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)?.link ?? ''
-  const token = new URL(link).searchParams.get('token') ?? ''
-  await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { token } })
+  const code = sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)?.code ?? ''
+  await app.inject({ method: 'POST', url: '/auth/verify-email', payload: { email, code } })
   const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email, password } })
   return login.json().accessToken
 }
