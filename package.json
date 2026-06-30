@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "deploy": "sam build && sam deploy",
     "db:migrate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
-    "db:migrate:remote": "drizzle-kit migrate"
+    "db:migrate:remote": "drizzle-kit migrate",
+    "db:migrate:neon": "bash scripts/migrate-remote.sh"
   },
   "keywords": [],
   "author": "",
