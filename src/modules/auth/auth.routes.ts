@@ -40,13 +40,35 @@ export const authRoutes: FastifyPluginAsyncTypebox = async (app) => {
 
   app.post(
     '/auth/verify-email',
-    { schema: { tags: ['auth'], summary: 'Confirm e-mail', body: VerifyEmailBody, response: { 200: MessageResponse } } },
-    (request) => service.verifyEmail(request.body.token),
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Confirm e-mail with OTP code',
+        description:
+          'Confirms an account e-mail with the 6-digit code sent on registration. The code ' +
+          'expires after a few minutes and is locked after too many failed attempts. The ' +
+          'response is generic and never reveals whether the e-mail exists.',
+        body: VerifyEmailBody,
+        response: { 200: MessageResponse },
+      },
+    },
+    (request) => service.verifyEmail(request.body),
   )
 
   app.post(
     '/auth/verify-email/resend',
-    { schema: { tags: ['auth'], summary: 'Resend verification', body: ResendVerificationBody, response: { 200: MessageResponse } } },
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Resend verification code',
+        description:
+          'Sends a new 6-digit verification code, superseding the previous one. Subject to a ' +
+          'cooldown between sends. Always responds generically, without revealing whether the ' +
+          'e-mail exists or is already verified.',
+        body: ResendVerificationBody,
+        response: { 200: MessageResponse },
+      },
+    },
     (request) => service.resendVerification(request.body.email),
   )
 

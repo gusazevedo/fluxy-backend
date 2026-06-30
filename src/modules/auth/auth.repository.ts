@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { Database } from '../../shared/database/client.js'
 import {
   type AuthToken,
@@ -18,6 +18,10 @@ export interface AuthRepository {
   updatePassword(userId: string, passwordHash: string): Promise<void>
   createAuthToken(userId: string, tokenHash: string, type: AuthTokenType, expiresAt: Date): Promise<void>
   findActiveAuthToken(tokenHash: string, type: AuthTokenType): Promise<AuthToken | undefined>
+  findActiveAuthTokenByUser(userId: string, type: AuthTokenType): Promise<AuthToken | undefined>
+  findLatestAuthToken(userId: string, type: AuthTokenType): Promise<AuthToken | undefined>
+  incrementAuthTokenAttempts(id: string): Promise<void>
+  invalidateActiveAuthTokens(userId: string, type: AuthTokenType): Promise<void>
   markAuthTokenUsed(id: string): Promise<void>
   createRefreshToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void>
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshToken | undefined>
@@ -61,6 +65,48 @@ export function createAuthRepository(db: Database): AuthRepository {
         )
         .limit(1)
       return rows[0]
+    },
+    async findActiveAuthTokenByUser(userId, type): Promise<AuthToken | undefined> {
+      const rows = await db
+        .select()
+        .from(authTokens)
+        .where(
+          and(
+            eq(authTokens.userId, userId),
+            eq(authTokens.type, type),
+            isNull(authTokens.usedAt),
+          ),
+        )
+        .orderBy(desc(authTokens.createdAt))
+        .limit(1)
+      return rows[0]
+    },
+    async findLatestAuthToken(userId, type): Promise<AuthToken | undefined> {
+      const rows = await db
+        .select()
+        .from(authTokens)
+        .where(and(eq(authTokens.userId, userId), eq(authTokens.type, type)))
+        .orderBy(desc(authTokens.createdAt))
+        .limit(1)
+      return rows[0]
+    },
+    async incrementAuthTokenAttempts(id): Promise<void> {
+      await db
+        .update(authTokens)
+        .set({ attempts: sql`${authTokens.attempts} + 1` })
+        .where(eq(authTokens.id, id))
+    },
+    async invalidateActiveAuthTokens(userId, type): Promise<void> {
+      await db
+        .update(authTokens)
+        .set({ usedAt: new Date() })
+        .where(
+          and(
+            eq(authTokens.userId, userId),
+            eq(authTokens.type, type),
+            isNull(authTokens.usedAt),
+          ),
+        )
     },
     async markAuthTokenUsed(id): Promise<void> {
       await db.update(authTokens).set({ usedAt: new Date() }).where(eq(authTokens.id, id))

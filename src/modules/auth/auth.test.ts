@@ -25,8 +25,12 @@ describe('auth flows', () => {
     await close()
   })
 
-  function lastLink(kind: 'verify' | 'reset', to: string): string {
-    return sent.filter((e) => e.kind === kind && e.to === to).at(-1)?.link ?? ''
+  function lastLink(to: string): string {
+    return sent.filter((e) => e.kind === 'reset' && e.to === to).at(-1)?.link ?? ''
+  }
+
+  function lastCode(to: string): string {
+    return sent.filter((e) => e.kind === 'verify' && e.to === to).at(-1)?.code ?? ''
   }
 
   async function registerAndVerify(email: string, password: string): Promise<void> {
@@ -38,7 +42,7 @@ describe('auth flows', () => {
     await app.inject({
       method: 'POST',
       url: '/auth/verify-email',
-      payload: { token: tokenFromLink(lastLink('verify', email)) },
+      payload: { email, code: lastCode(email) },
     })
   }
 
@@ -49,7 +53,8 @@ describe('auth flows', () => {
       payload: { email: 'a@example.com', firstName: 'Ana', lastName: 'Silva', password: 'password123' },
     })
     expect(res.statusCode).toBe(201)
-    expect(sent.some((e) => e.kind === 'verify' && e.to === 'a@example.com')).toBe(true)
+    const code = lastCode('a@example.com')
+    expect(code).toMatch(/^[0-9]{6}$/)
   })
 
   it('blocks login before e-mail verification', async () => {
@@ -66,7 +71,7 @@ describe('auth flows', () => {
     const verify = await app.inject({
       method: 'POST',
       url: '/auth/verify-email',
-      payload: { token: tokenFromLink(lastLink('verify', 'a@example.com')) },
+      payload: { email: 'a@example.com', code: lastCode('a@example.com') },
     })
     expect(verify.statusCode).toBe(200)
 
@@ -141,7 +146,7 @@ describe('auth flows', () => {
     const reset = await app.inject({
       method: 'POST',
       url: '/auth/reset-password',
-      payload: { token: tokenFromLink(lastLink('reset', 'b@example.com')), password: 'newpassword456' },
+      payload: { token: tokenFromLink(lastLink('b@example.com')), password: 'newpassword456' },
     })
     expect(reset.statusCode).toBe(200)
 
@@ -207,5 +212,91 @@ describe('auth flows', () => {
     })
     expect(noName.statusCode).toBe(400)
     expect(noName.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('rejects a malformed verification code with a validation error', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-email',
+      payload: { email: 'a@example.com', code: '123' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('rejects a wrong code and locks the code after too many attempts', async () => {
+    const email = 'otp-lock@example.com'
+    await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email, firstName: 'Lock', lastName: 'User', password: 'password123' },
+    })
+    const realCode = lastCode(email)
+    const wrongCode = realCode === '000000' ? '111111' : '000000'
+
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/verify-email',
+        payload: { email, code: wrongCode },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.code).toBe('OTP_INVALID')
+    }
+
+    // The code is now locked: even the correct code is rejected.
+    const locked = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-email',
+      payload: { email, code: realCode },
+    })
+    expect(locked.statusCode).toBe(400)
+    expect(locked.json().error.code).toBe('OTP_INVALID')
+  })
+
+  it('resend issues a new code and invalidates the previous one', async () => {
+    const email = 'otp-resend@example.com'
+    await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email, firstName: 'Re', lastName: 'Send', password: 'password123' },
+    })
+    const firstCode = lastCode(email)
+
+    const resend = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-email/resend',
+      payload: { email },
+    })
+    expect(resend.statusCode).toBe(200)
+    const secondCode = lastCode(email)
+    expect(secondCode).not.toBe(firstCode)
+
+    // The superseded code no longer verifies.
+    const oldTry = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-email',
+      payload: { email, code: firstCode },
+    })
+    expect(oldTry.statusCode).toBe(400)
+    expect(oldTry.json().error.code).toBe('OTP_INVALID')
+
+    // The latest code does.
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-email',
+      payload: { email, code: secondCode },
+    })
+    expect(ok.statusCode).toBe(200)
+  })
+
+  it('does not reveal whether an e-mail exists on verify', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-email',
+      payload: { email: 'nobody@example.com', code: '000000' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('OTP_INVALID')
   })
 })

@@ -1,11 +1,22 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 
 /**
  * Generates a high-entropy, URL-safe random token. Used for refresh tokens and
- * the e-mail verification / password-reset tokens.
+ * the password-reset token.
  */
 export function generateToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url')
+}
+
+/**
+ * Generates a numeric one-time password (OTP) for e-mail verification. Uses a
+ * uniform, unbiased random integer and left-pads with zeros so the result is
+ * always exactly `digits` long (e.g. "004217").
+ */
+export function generateOtp(digits = 6): string {
+  return randomInt(0, 10 ** digits)
+    .toString()
+    .padStart(digits, '0')
 }
 
 /**
