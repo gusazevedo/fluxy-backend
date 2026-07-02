@@ -121,6 +121,9 @@ export const transactions = pgTable(
     // Positive magnitude in cents (PD-1); the sign comes from `kind`.
     amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
     kind: transactionKind('kind').notNull(),
+    // Short human label for the transaction. Required; max length enforced by the
+    // TypeBox schema (100).
+    name: text('name').notNull(),
     description: text('description'),
     occurredAt: date('occurred_at', { mode: 'string' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -4,6 +4,7 @@ import { type Transaction, transactions, type TransactionKind } from '../../shar
 
 export interface CreateTransactionData {
   userId: string
+  name: string
   amountCents: number
   kind: TransactionKind
   categoryId: string
@@ -12,6 +13,7 @@ export interface CreateTransactionData {
 }
 
 export interface UpdateTransactionData {
+  name?: string
   amountCents?: number
   kind?: TransactionKind
   categoryId?: string

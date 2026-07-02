@@ -22,6 +22,7 @@ function makeTransaction(over: Partial<Transaction> = {}): Transaction {
     id: 'tx-1',
     userId: 'user-1',
     categoryId: 'cat-1',
+    name: 'Almoço',
     amountCents: 1500,
     kind: 'expense',
     description: null,
@@ -58,7 +59,7 @@ function makeCatRepo(over: Partial<CategoryRepository> = {}): CategoryRepository
   }
 }
 
-const baseInput = { amountCents: 1500, kind: 'expense' as const, categoryId: 'cat-1', occurredAt: '2026-06-20' }
+const baseInput = { name: 'Almoço', amountCents: 1500, kind: 'expense' as const, categoryId: 'cat-1', occurredAt: '2026-06-20' }
 
 describe('transaction service', () => {
   it('rejects a non-positive amount', async () => {
@@ -99,7 +100,7 @@ describe('transaction service', () => {
       categoryRepo: makeCatRepo({ findById: vi.fn().mockResolvedValue(makeCategory()) }),
     })
     const dto = await service.create('user-1', baseInput)
-    expect(dto).toMatchObject({ amountCents: 1500, kind: 'expense', categoryId: 'cat-1' })
+    expect(dto).toMatchObject({ name: 'Almoço', amountCents: 1500, kind: 'expense', categoryId: 'cat-1' })
   })
 
   it('404s when updating a missing transaction', async () => {

@@ -49,10 +49,21 @@ describe('transactions', () => {
       method: 'POST',
       url: '/transactions',
       headers: auth(),
-      payload: { amountCents: 1250, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-10', description: 'Almoço' },
+      payload: { name: 'Almoço', amountCents: 1250, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-10', description: 'Almoço' },
     })
     expect(res.statusCode).toBe(201)
-    expect(res.json()).toMatchObject({ amountCents: 1250, kind: 'expense', categoryId: expenseCategoryId, description: 'Almoço' })
+    expect(res.json()).toMatchObject({ name: 'Almoço', amountCents: 1250, kind: 'expense', categoryId: expenseCategoryId, description: 'Almoço' })
+  })
+
+  it('requires a name', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/transactions',
+      headers: auth(),
+      payload: { amountCents: 1250, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-10' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
   })
 
   it('rejects a category of a different kind', async () => {
@@ -60,7 +71,7 @@ describe('transactions', () => {
       method: 'POST',
       url: '/transactions',
       headers: auth(),
-      payload: { amountCents: 1000, kind: 'income', categoryId: expenseCategoryId, occurredAt: '2026-06-10' },
+      payload: { name: 'Teste', amountCents: 1000, kind: 'income', categoryId: expenseCategoryId, occurredAt: '2026-06-10' },
     })
     expect(res.statusCode).toBe(409)
     expect(res.json().error.code).toBe('CATEGORY_KIND_MISMATCH')
@@ -71,14 +82,14 @@ describe('transactions', () => {
       method: 'POST',
       url: '/transactions',
       headers: auth(),
-      payload: { amountCents: 0, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-10' },
+      payload: { name: 'Teste', amountCents: 0, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-10' },
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error.code).toBe('INVALID_AMOUNT')
   })
 
   it('lists transactions with filters and a cursor', async () => {
-    await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 500, kind: 'income', categoryId: incomeCategoryId, occurredAt: '2026-06-01' } })
+    await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { name: 'Receita', amountCents: 500, kind: 'income', categoryId: incomeCategoryId, occurredAt: '2026-06-01' } })
     const res = await app.inject({ method: 'GET', url: '/transactions?kind=expense&limit=1', headers: auth() })
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -92,7 +103,7 @@ describe('transactions', () => {
     const catId = cat.json().id
     const created = new Set<string>()
     for (let i = 1; i <= 5; i++) {
-      const r = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 100 * i, kind: 'expense', categoryId: catId, occurredAt: `2026-03-0${i}` } })
+      const r = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { name: `Item ${i}`, amountCents: 100 * i, kind: 'expense', categoryId: catId, occurredAt: `2026-03-0${i}` } })
       created.add(r.json().id)
     }
 
@@ -118,15 +129,15 @@ describe('transactions', () => {
   })
 
   it('gets, updates and deletes a transaction', async () => {
-    const created = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 800, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-05' } })
+    const created = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { name: 'Compra', amountCents: 800, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-05' } })
     const id = created.json().id
 
     const got = await app.inject({ method: 'GET', url: `/transactions/${id}`, headers: auth() })
     expect(got.statusCode).toBe(200)
 
-    const updated = await app.inject({ method: 'PATCH', url: `/transactions/${id}`, headers: auth(), payload: { amountCents: 950, description: 'ajustado' } })
+    const updated = await app.inject({ method: 'PATCH', url: `/transactions/${id}`, headers: auth(), payload: { name: 'Compra ajustada', amountCents: 950, description: 'ajustado' } })
     expect(updated.statusCode).toBe(200)
-    expect(updated.json()).toMatchObject({ amountCents: 950, description: 'ajustado' })
+    expect(updated.json()).toMatchObject({ name: 'Compra ajustada', amountCents: 950, description: 'ajustado' })
 
     const del = await app.inject({ method: 'DELETE', url: `/transactions/${id}`, headers: auth() })
     expect(del.statusCode).toBe(204)
@@ -138,7 +149,7 @@ describe('transactions', () => {
     // New category + a transaction that uses it.
     const cat = await app.inject({ method: 'POST', url: '/categories', headers: auth(), payload: { name: 'Hobby', kind: 'expense' } })
     const hobbyId = cat.json().id
-    const tx = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 4200, kind: 'expense', categoryId: hobbyId, occurredAt: '2026-06-02' } })
+    const tx = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { name: 'Hobby item', amountCents: 4200, kind: 'expense', categoryId: hobbyId, occurredAt: '2026-06-02' } })
     const txId = tx.json().id
 
     // Deleting a used category archives it (does not hard-delete).
@@ -157,13 +168,13 @@ describe('transactions', () => {
     expect(stillThere.json().categoryId).toBe(hobbyId)
 
     // But a new transaction cannot use the archived category.
-    const blocked = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 100, kind: 'expense', categoryId: hobbyId, occurredAt: '2026-06-03' } })
+    const blocked = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { name: 'Bloqueado', amountCents: 100, kind: 'expense', categoryId: hobbyId, occurredAt: '2026-06-03' } })
     expect(blocked.statusCode).toBe(409)
     expect(blocked.json().error.code).toBe('CATEGORY_ARCHIVED')
   })
 
   it('isolates transactions per user', async () => {
-    const created = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { amountCents: 700, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-07' } })
+    const created = await app.inject({ method: 'POST', url: '/transactions', headers: auth(), payload: { name: 'Isolado', amountCents: 700, kind: 'expense', categoryId: expenseCategoryId, occurredAt: '2026-06-07' } })
     const id = created.json().id
 
     const otherToken = await authenticate(app, sent, 'tx-other@example.com', 'password123')

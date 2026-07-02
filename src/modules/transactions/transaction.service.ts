@@ -5,6 +5,7 @@ import type { TransactionRepository, UpdateTransactionData } from './transaction
 
 export interface TransactionDto {
   id: string
+  name: string
   amountCents: number
   kind: TransactionKind
   categoryId: string
@@ -28,6 +29,7 @@ export interface ListTransactionsInput {
 }
 
 export interface CreateTransactionInput {
+  name: string
   amountCents: number
   kind: TransactionKind
   categoryId: string
@@ -36,6 +38,7 @@ export interface CreateTransactionInput {
 }
 
 export interface UpdateTransactionInput {
+  name?: string
   amountCents?: number
   kind?: TransactionKind
   categoryId?: string
@@ -67,6 +70,7 @@ const kindMismatch = (): AppError =>
 function toDto(t: Transaction): TransactionDto {
   return {
     id: t.id,
+    name: t.name,
     amountCents: t.amountCents,
     kind: t.kind,
     categoryId: t.categoryId,
@@ -105,6 +109,7 @@ export function createTransactionService(deps: TransactionServiceDeps): Transact
 
       const tx = await repo.create({
         userId,
+        name: input.name,
         amountCents: input.amountCents,
         kind: input.kind,
         categoryId: input.categoryId,
@@ -155,6 +160,7 @@ export function createTransactionService(deps: TransactionServiceDeps): Transact
       }
 
       const data: UpdateTransactionData = {}
+      if (input.name !== undefined) data.name = input.name
       if (input.amountCents !== undefined) data.amountCents = input.amountCents
       if (input.kind !== undefined) data.kind = input.kind
       if (input.categoryId !== undefined) data.categoryId = input.categoryId
