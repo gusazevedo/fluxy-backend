@@ -5,8 +5,8 @@
 | **Status** | Aprovada |
 | **Autor** | Gustavo Azevedo |
 | **Criada em** | 2026-06-20 |
-| **Atualizada em** | 2026-06-21 |
-| **Versão** | 1.1 |
+| **Atualizada em** | 2026-07-02 |
+| **Versão** | 1.2 |
 | **Specs relacionadas** | [0001](./0001-visao-geral-do-produto.md), [0002](./0002-arquitetura-tecnica.md), [0003](./0003-autenticacao-e-contas.md), [0004](./0004-categorias.md) |
 
 ## 1. Contexto e Objetivo
@@ -45,6 +45,7 @@ Convenções da 0002: UUID (PD-2), centavos inteiros (PD-1), `timestamptz` (PD-6
 | `category_id` | UUID | FK → `categories`. **NOT NULL** (obrigatória) |
 | `amount_cents` | BIGINT | Inteiro **positivo** (magnitude); o sinal vem do `kind` |
 | `kind` | ENUM | `expense` \| `income` |
+| `name` | TEXT | **NOT NULL** (obrigatório). Rótulo curto, 1–100 caracteres (*ver D8*) |
 | `description` | TEXT | Opcional (máx. 280 — *ver D4*) |
 | `occurred_at` | DATE | Data do fato financeiro |
 | `created_at` / `updated_at` | timestamptz | default `now()` |
@@ -67,9 +68,9 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | GET | `/transactions` | Lista transações com filtros e paginação (ver abaixo) |
-| POST | `/transactions` | Cria (`amountCents`, `kind`, `categoryId`, `occurredAt`, [`description`]) |
+| POST | `/transactions` | Cria (`name`, `amountCents`, `kind`, `categoryId`, `occurredAt`, [`description`]) |
 | GET | `/transactions/:id` | Detalha uma transação |
-| PATCH | `/transactions/:id` | Atualiza campos (`amountCents`, `categoryId`, `kind`, `occurredAt`, `description`) |
+| PATCH | `/transactions/:id` | Atualiza campos (`name`, `amountCents`, `categoryId`, `kind`, `occurredAt`, `description`) |
 | DELETE | `/transactions/:id` | Exclui de fato |
 
 **GET `/transactions` — query params:**
@@ -87,6 +88,8 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 
 ## 7. Validações e Regras de Associação
 
+- `name` é **obrigatório** e **não nulo**, com **1 a 100** caracteres (*D8*). Ausente/vazio ⇒
+  `VALIDATION_ERROR` (400).
 - `amountCents` é **inteiro > 0** (senão `INVALID_AMOUNT`).
 - `occurredAt` é uma data válida; **datas futuras são permitidas**.
 - `description` opcional, até **280** caracteres (*D4*).
@@ -100,7 +103,7 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 
 ## 8. Requisitos Funcionais
 
-- **RF-1** Criar transação com valor, data, categoria, tipo e descrição opcional (RF-5 da 0001).
+- **RF-1** Criar transação com nome, valor, data, categoria, tipo e descrição opcional (RF-5 da 0001).
 - **RF-2** Listar transações com filtros por período, categoria e tipo, paginadas (RF-7 da 0001).
 - **RF-3** Detalhar uma transação.
 - **RF-4** Editar uma transação (RF-6 / RN-6 da 0001).
@@ -136,6 +139,7 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 ## 12. Glossário
 
 - **Transação** Registro de uma despesa ou receita.
+- **`name`** Rótulo curto e obrigatório da transação (1–100 caracteres).
 - **`amountCents`** Valor em centavos inteiros (magnitude positiva).
 - **`occurredAt`** Data em que o fato financeiro ocorreu.
 - **`kind`** Tipo da transação: `expense` (despesa) ou `income` (receita).
@@ -151,6 +155,9 @@ Todas autenticadas e isoladas por usuário (PD-3). Erros no envelope `{ error: {
 - **D2 — Editar `kind`:** permitido, desde que a categoria corresponda ao novo tipo.
 - **D3 — Exclusão:** hard delete (transações não têm soft-delete).
 - **D4 — `description`:** opcional, até 280 caracteres.
+- **D8 — `name`:** **obrigatório** e não nulo, 1–100 caracteres.
+  _(Revisão v1.2 — 2026-07-02: campo adicionado ao modelo e ao contrato de criação/edição.
+  Migration `0005_add_transaction_name` adiciona a coluna `NOT NULL`.)_
 
 ### Decisões confirmadas (Q1–Q3)
 

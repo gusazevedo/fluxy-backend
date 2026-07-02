@@ -48,7 +48,7 @@ describe('reports', () => {
       method: 'POST',
       url: '/transactions',
       headers: auth(),
-      payload: { amountCents, kind, categoryId, occurredAt },
+      payload: { name: 'Lançamento', amountCents, kind, categoryId, occurredAt },
     })
   }
 

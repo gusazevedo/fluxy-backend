@@ -5,10 +5,12 @@ const Uuid = Type.String({
   pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
 })
 const DateOnly = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+const Name = Type.String({ minLength: 1, maxLength: 100 })
 const Description = Type.String({ maxLength: 280 })
 const AmountCents = Type.Integer() // positivity is enforced in the service (INVALID_AMOUNT)
 
 export const CreateTransactionBody = Type.Object({
+  name: Name,
   amountCents: AmountCents,
   kind: Kind,
   categoryId: Uuid,
@@ -17,6 +19,7 @@ export const CreateTransactionBody = Type.Object({
 })
 
 export const UpdateTransactionBody = Type.Object({
+  name: Type.Optional(Name),
   amountCents: Type.Optional(AmountCents),
   kind: Type.Optional(Kind),
   categoryId: Type.Optional(Uuid),
@@ -38,6 +41,7 @@ export const ListTransactionsQuery = Type.Object({
 
 export const TransactionResponse = Type.Object({
   id: Type.String(),
+  name: Type.String(),
   amountCents: Type.Integer(),
   kind: Kind,
   categoryId: Type.String(),
