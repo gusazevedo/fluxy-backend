@@ -89,10 +89,10 @@ Uma linha por e-mail com cadastro pendente, em vez de acumular registros.
 | `otp_hash` | TEXT | **Hash** do código OTP de 6 dígitos |
 | `attempts` | integer | tentativas erradas **do código atual** (default `0`); trava o código no limite |
 | `expires_at` | timestamptz | validade do OTP |
+| `last_sent_at` | timestamptz | último envio; base do cooldown de reenvio |
 | `verified_at` | timestamptz | nulo até o OTP conferir |
 | `signup_token_hash` | TEXT | **Hash** do token de conclusão; **único**, indexado; nulo até a verificação |
 | `signup_token_expires_at` | timestamptz | nulo até a verificação |
-| `consumed_at` | timestamptz | marcado quando a conta é criada; encerra o registro |
 | `sends_in_window` | integer | códigos emitidos para este e-mail na janela corrente (RN-8) |
 | `failures_in_window` | integer | tentativas erradas acumuladas na janela corrente (RN-8) |
 | `window_started_at` | timestamptz | início da janela de 24h dos dois contadores acima |
@@ -104,11 +104,13 @@ essa linha: novo `otp_hash`, `attempts` zerado, nova `expires_at`, e `verified_a
 antes do reinício deixa de valer. Os contadores de janela (`sends_in_window`,
 `failures_in_window`, `window_started_at`) **não** são zerados pelo reinício; só viram na janela.
 
-**Retenção.** Linhas **consumidas** são removidas assim que a conta é criada (a `users` passa a
-ser o registro), e linhas **pendentes** expiradas há mais de 24h são descartadas. Sem isso, o
-índice único de `email` prenderia o endereço indefinidamente e a tabela acumularia dado pessoal
-de quem nunca virou usuário. A limpeza é oportunista: `signup/start` apaga a linha pendente
-vencida do próprio e-mail antes de criar a nova.
+**Retenção.** A linha é **apagada** no mesmo comando que cria a conta (a `users` passa a ser o
+registro), e linhas **pendentes** expiradas há mais de 24h são descartadas. Por isso não existe
+coluna `consumed_at`: consumir o token *é* apagar a linha, e "token já consumido" torna-se
+indistinguível de "token inexistente" — ambos `SIGNUP_TOKEN_INVALID`. Sem essa limpeza, o índice
+único de `email` prenderia o endereço indefinidamente e a tabela acumularia dado pessoal de quem
+nunca virou usuário. A limpeza das pendentes é oportunista: `signup/start` apaga a linha vencida
+do próprio e-mail antes de criar a nova.
 
 > Tokens de alta entropia (refresh, reset, signup) e o código de verificação são guardados como
 > **hash SHA-256** (rápido e suficiente para segredos aleatórios). **Argon2id** é usado apenas
@@ -154,7 +156,7 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
 | `signup/start` | e-mail já é conta, dentro do cooldown, ou teto da janela atingido | 202 | — (resposta genérica) |
 | `signup/verify` | código errado, código travado por tentativas, ou sem cadastro pendente | 400 | `OTP_INVALID` |
 | `signup/verify` | cadastro pendente existe mas o código expirou | 400 | `OTP_EXPIRED` |
-| `signup/complete` | token inexistente, não verificado ou já consumido | 400 | `SIGNUP_TOKEN_INVALID` |
+| `signup/complete` | token inexistente, não verificado ou já usado | 400 | `SIGNUP_TOKEN_INVALID` |
 | `signup/complete` | token válido, porém vencido | 400 | `SIGNUP_TOKEN_EXPIRED` |
 | `signup/complete` | `password` ≠ `passwordConfirmation` | 400 | `PASSWORD_MISMATCH` |
 | `signup/complete` | e-mail virou conta entre o início e a conclusão | 409 | `EMAIL_IN_USE` |
@@ -215,15 +217,15 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
       uma segunda chamada não invalida o token entregue na primeira. Para recomeçar, o caminho é
       `signup/start`, que limpa a verificação e o token (§4).
    3. `signup/complete` recebe `{ signupToken, firstName, lastName, password, passwordConfirmation }`.
-      Valida o token (existe, verificado, não expirado, não consumido) e a confirmação de senha,
-      cria o usuário já com **`email_verified = true`**, semeia as **categorias padrão** (0004) e
+      Confere a confirmação de senha, valida o token (existe, verificado, não expirado), cria o
+      usuário já com **`email_verified = true`**, semeia as **categorias padrão** (0004) e
       **emite access + refresh** — o usuário entra logado (D9).
 
-      Consumo do token, criação do usuário e semeadura acontecem numa **única transação** (D14): ou
-      a conta nasce completa e com categorias, ou nada é gravado e o token continua válido para
-      nova tentativa. O consumo é uma **atualização condicional** sobre a linha ainda não
-      consumida — duas chamadas simultâneas com o mesmo token: uma vence, a outra recebe
-      `SIGNUP_TOKEN_INVALID`, nunca um 500 por violação de unicidade.
+      Consumo do token, criação do usuário e semeadura acontecem num **único comando SQL** com
+      CTEs encadeadas (D14): ou a conta nasce completa e com categorias, ou nada é gravado e o
+      token continua válido para nova tentativa. O consumo é o próprio `DELETE ... RETURNING` da
+      linha, que o Postgres serializa — de duas chamadas simultâneas com o mesmo token, uma vence
+      e a outra recebe `SIGNUP_TOKEN_INVALID`, nunca um 500 por violação de unicidade.
 
    A conta **só passa a existir na etapa 3**: cadastros abandonados não deixam usuário algum.
 
@@ -375,9 +377,15 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   Com o envio síncrono, o caminho "e-mail livre" (INSERT + chamada ao Resend) levaria centenas de
   ms a mais que o caminho "e-mail já cadastrado" (um SELECT), tornando a enumeração trivial por
   cronômetro e esvaziando a RNF-3.
-- **D14 — `signup/complete` transacional:** consumo do token, criação do usuário e semeadura das
-  categorias numa transação só, com consumo por atualização condicional. Evita conta sem
-  categorias em falha parcial e transforma a corrida de duplo `complete` em erro previsto.
+- **D14 — `signup/complete` atômico via CTE:** consumo do token, criação do usuário e semeadura
+  das categorias num **único comando SQL** (`WITH consumed AS (DELETE ... RETURNING) ...`). Evita
+  conta sem categorias em falha parcial e transforma a corrida de duplo `complete` em erro
+  previsto. **Não** se usa `db.transaction()`: o driver HTTP do Neon (AD-8 da 0002) não suporta
+  transação — `drizzle-orm/neon-http` lança `"No transactions support in neon-http driver"` —
+  enquanto `db.batch()`, que ele suporta, não existe no `postgres.js` (dev) nem no `pglite`
+  (testes). Um comando único é atômico no Postgres em **qualquer** driver, então é a única
+  primitiva comum aos três ambientes sem revisar a AD-8. Custo aceito: esse comando é SQL cru,
+  isolado no repositório, em vez do query builder tipado.
 - **D15 — `OTP_EXPIRED` mantido:** aceita-se que `signup/verify` revele a existência de um
   cadastro **pendente** (não de conta). Colapsar tudo em `OTP_INVALID` deixaria quem tem código
   vencido sem saber que basta pedir outro, e um cadastro pendente é informação de baixo valor
