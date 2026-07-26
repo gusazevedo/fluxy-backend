@@ -45,6 +45,8 @@ Convenções da 0002: UUID (PD-2), `timestamptz` (PD-6).
 |-------|------|-------|
 | `id` | UUID | PK |
 | `email` | TEXT | Único, armazenado em **minúsculas** (unicidade case-insensitive) |
+| `first_name` | TEXT | Obrigatório; informado em `signup/complete` |
+| `last_name` | TEXT | Obrigatório; informado em `signup/complete` |
 | `password_hash` | TEXT | **Argon2id** (AD-11) |
 | `email_verified` | BOOLEAN | default `false` |
 | `created_at` / `updated_at` | timestamptz | default `now()` |
@@ -68,30 +70,45 @@ Convenções da 0002: UUID (PD-2), `timestamptz` (PD-6).
 | `type` | ENUM | `email_verify` \| `password_reset` |
 | `expires_at` | timestamptz | |
 | `used_at` | timestamptz | marca uso único |
-| `attempts` | integer | tentativas erradas (default `0`) |
+| `attempts` | integer | tentativas erradas (default `0`); **sem uso** — o reset não conta tentativas |
 | `created_at` | timestamptz | default `now()` |
 
 > A partir da v2.0 esta tabela serve **apenas** a `password_reset`: a verificação de e-mail
 > acontece antes de existir usuário e mora em `signup_verifications`. O valor `email_verify`
-> permanece no enum do Postgres por custo de migration, sem uso pela aplicação.
+> permanece no enum do Postgres por custo de migration, sem uso pela aplicação; as linhas
+> `email_verify` remanescentes são **descartadas** pela migration.
 
 ### `signup_verifications` (cadastro em andamento)
 
-Uma linha por e-mail com cadastro pendente. Recomeçar o cadastro **atualiza** a linha existente
-(novo código, `attempts` zerado, nova expiração), em vez de acumular registros.
+Uma linha por e-mail com cadastro pendente, em vez de acumular registros.
 
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | `id` | UUID | PK |
 | `email` | TEXT | **Único**, armazenado em minúsculas |
 | `otp_hash` | TEXT | **Hash** do código OTP de 6 dígitos |
-| `attempts` | integer | tentativas erradas do OTP (default `0`); trava o código no limite |
+| `attempts` | integer | tentativas erradas **do código atual** (default `0`); trava o código no limite |
 | `expires_at` | timestamptz | validade do OTP |
 | `verified_at` | timestamptz | nulo até o OTP conferir |
-| `signup_token_hash` | TEXT | **Hash** do token de conclusão; nulo até a verificação |
+| `signup_token_hash` | TEXT | **Hash** do token de conclusão; **único**, indexado; nulo até a verificação |
 | `signup_token_expires_at` | timestamptz | nulo até a verificação |
 | `consumed_at` | timestamptz | marcado quando a conta é criada; encerra o registro |
+| `sends_in_window` | integer | códigos emitidos para este e-mail na janela corrente (RN-8) |
+| `failures_in_window` | integer | tentativas erradas acumuladas na janela corrente (RN-8) |
+| `window_started_at` | timestamptz | início da janela de 24h dos dois contadores acima |
 | `created_at` / `updated_at` | timestamptz | default `now()` |
+
+**Reinício do cadastro.** Um novo `signup/start` para um e-mail com linha pendente **atualiza**
+essa linha: novo `otp_hash`, `attempts` zerado, nova `expires_at`, e `verified_at`,
+`signup_token_hash` e `signup_token_expires_at` **limpos** — de modo que um signup token emitido
+antes do reinício deixa de valer. Os contadores de janela (`sends_in_window`,
+`failures_in_window`, `window_started_at`) **não** são zerados pelo reinício; só viram na janela.
+
+**Retenção.** Linhas **consumidas** são removidas assim que a conta é criada (a `users` passa a
+ser o registro), e linhas **pendentes** expiradas há mais de 24h são descartadas. Sem isso, o
+índice único de `email` prenderia o endereço indefinidamente e a tabela acumularia dado pessoal
+de quem nunca virou usuário. A limpeza é oportunista: `signup/start` apaga a linha pendente
+vencida do próprio e-mail antes de criar a nova.
 
 > Tokens de alta entropia (refresh, reset, signup) e o código de verificação são guardados como
 > **hash SHA-256** (rápido e suficiente para segredos aleatórios). **Argon2id** é usado apenas
@@ -118,18 +135,35 @@ Prefixo `/auth` (exceto `/me`). Erros seguem o envelope `{ error: { code, messag
 
 ```
 POST /auth/signup/start     { email }
-  → 202 { message }                    genérico (RNF-3)
+  → 202 { message }                          genérico (RNF-3)
 
 POST /auth/signup/verify    { email, code }
-  → 200 { signupToken, expiresIn }     token cru devolvido uma única vez
+  → 200 { signupToken, expiresInSeconds }    token cru devolvido uma única vez
 
 POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwordConfirmation }
   → 201 { accessToken, refreshToken, tokenType, expiresIn }
 ```
 
-**Códigos de erro** (exemplos): `EMAIL_IN_USE`, `INVALID_CREDENTIALS`, `EMAIL_NOT_VERIFIED`,
-`WEAK_PASSWORD`, `PASSWORD_MISMATCH`, `OTP_INVALID`, `OTP_EXPIRED`, `SIGNUP_TOKEN_INVALID`,
-`SIGNUP_TOKEN_EXPIRED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `TOKEN_USED`, `UNAUTHORIZED`.
+`expiresInSeconds` é um **inteiro em segundos** — diferente do `expiresIn` do par de tokens, que
+é a string do TTL do access (ex.: `"15m"`), mantida por compatibilidade com o contrato existente.
+
+**Erros do cadastro:**
+
+| Endpoint | Situação | Status | Código |
+|----------|----------|--------|--------|
+| `signup/start` | e-mail já é conta, dentro do cooldown, ou teto da janela atingido | 202 | — (resposta genérica) |
+| `signup/verify` | código errado, código travado por tentativas, ou sem cadastro pendente | 400 | `OTP_INVALID` |
+| `signup/verify` | cadastro pendente existe mas o código expirou | 400 | `OTP_EXPIRED` |
+| `signup/complete` | token inexistente, não verificado ou já consumido | 400 | `SIGNUP_TOKEN_INVALID` |
+| `signup/complete` | token válido, porém vencido | 400 | `SIGNUP_TOKEN_EXPIRED` |
+| `signup/complete` | `password` ≠ `passwordConfirmation` | 400 | `PASSWORD_MISMATCH` |
+| `signup/complete` | e-mail virou conta entre o início e a conclusão | 409 | `EMAIL_IN_USE` |
+
+Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 de validação);
+`WEAK_PASSWORD` fica reservado para regras de senha que não caibam no schema.
+
+**Demais códigos:** `INVALID_CREDENTIALS` (401), `EMAIL_NOT_VERIFIED` (403), `TOKEN_INVALID` /
+`TOKEN_EXPIRED` (401 no refresh, 400 no reset), `UNAUTHORIZED` (401).
 
 ## 6. Estratégia de Tokens e Sessões
 
@@ -145,27 +179,56 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
 - **Tokens de e-mail** — verificação de cadastro: **código OTP de 6 dígitos**, TTL **default 5min**,
   com **limite de tentativas** (`attempts`, default 5) e **reenvio** com cooldown (default 60s);
   reset: token de link, TTL **default 1h**. Ambos de **uso único**.
-- **Signup token** — string **opaca** aleatória emitida por `signup/verify` e guardada **hasheada**
-  em `signup_verifications`. TTL curto (**default 15min**, `SIGNUP_TOKEN_TTL_MINUTES`). Autoriza
-  **apenas** a conclusão do cadastro, é de **uso único** (`consumed_at`) e não vale como sessão.
+- **Signup token** — string **opaca** aleatória de **32 bytes** (mesma geração do refresh token),
+  emitida por `signup/verify` e guardada **hasheada** em `signup_verifications`. TTL curto
+  (**default 15min**, `SIGNUP_TOKEN_TTL_MINUTES`). Autoriza **apenas** a conclusão do cadastro, é
+  de **uso único** e não vale como sessão.
+
+### Configuração
+
+| Variável | Default | Uso |
+|----------|---------|-----|
+| `ACCESS_TOKEN_TTL` | `15m` | TTL do access token |
+| `REFRESH_TOKEN_TTL_DAYS` | `30` | TTL do refresh token |
+| `VERIFY_OTP_TTL_MINUTES` | `5` | Validade do código OTP |
+| `VERIFY_OTP_MAX_ATTEMPTS` | `5` | Tentativas erradas por código antes de travá-lo |
+| `VERIFY_OTP_RESEND_COOLDOWN_SECONDS` | `60` | Intervalo mínimo entre dois envios |
+| `SIGNUP_TOKEN_TTL_MINUTES` | `15` | Validade do signup token |
+| `SIGNUP_MAX_SENDS_PER_DAY` | `10` | Teto de códigos por e-mail na janela de 24h (RN-8) |
+| `SIGNUP_MAX_FAILURES_PER_DAY` | `20` | Teto de tentativas erradas por e-mail na janela (RN-8) |
+| `RESET_TOKEN_TTL_HOURS` | `1` | Validade do token de reset |
 
 ## 7. Fluxos Principais
 
 1. **Cadastro (3 etapas, e-mail primeiro):**
    1. `signup/start` recebe `{ email }`. Se o e-mail **já pertence a um usuário**, nada acontece;
       caso contrário, cria/atualiza a linha em `signup_verifications` com um **código OTP de 6
-      dígitos** e o envia via Resend. A resposta é **sempre** a mesma (RNF-3). Chamar de novo com
-      o mesmo e-mail é o **reenvio**: gera um código novo invalidando o anterior, respeitando o
-      cooldown; dentro do cooldown, nada é enviado e a resposta não muda.
-   2. `signup/verify` recebe `{ email, code }`. Código errado incrementa `attempts`; ao atingir o
-      limite, o código é travado. Acertando, grava `verified_at`, emite o **signup token** e o
-      devolve cru uma única vez. O OTP deixa de valer a partir daí.
+      dígitos** e o envia via Resend. A resposta é **sempre** a mesma (RNF-3) e é devolvida
+      **antes** do envio ser concluído (D13), de modo que os dois caminhos levem o mesmo tempo;
+      falha de envio vira log, não erro de resposta. Chamar de novo com o mesmo e-mail é o
+      **reenvio**: gera um código novo invalidando o anterior, respeitando o cooldown e os tetos
+      da janela (RN-8); bloqueado por qualquer um deles, nada é enviado e a resposta não muda.
+   2. `signup/verify` recebe `{ email, code }`. Código errado incrementa `attempts` e
+      `failures_in_window`; ao atingir o limite do código, ele é travado. Acertando, grava
+      `verified_at`, emite o **signup token** e o devolve cru uma única vez. O OTP deixa de valer
+      a partir daí, e uma linha **já verificada** rejeita novo `verify` com `OTP_INVALID` — assim
+      uma segunda chamada não invalida o token entregue na primeira. Para recomeçar, o caminho é
+      `signup/start`, que limpa a verificação e o token (§4).
    3. `signup/complete` recebe `{ signupToken, firstName, lastName, password, passwordConfirmation }`.
       Valida o token (existe, verificado, não expirado, não consumido) e a confirmação de senha,
-      cria o usuário já com **`email_verified = true`**, semeia as **categorias padrão** (0004),
-      marca `consumed_at` e **emite access + refresh** — o usuário entra logado (D9).
+      cria o usuário já com **`email_verified = true`**, semeia as **categorias padrão** (0004) e
+      **emite access + refresh** — o usuário entra logado (D9).
+
+      Consumo do token, criação do usuário e semeadura acontecem numa **única transação** (D14): ou
+      a conta nasce completa e com categorias, ou nada é gravado e o token continua válido para
+      nova tentativa. O consumo é uma **atualização condicional** sobre a linha ainda não
+      consumida — duas chamadas simultâneas com o mesmo token: uma vence, a outra recebe
+      `SIGNUP_TOKEN_INVALID`, nunca um 500 por violação de unicidade.
 
    A conta **só passa a existir na etapa 3**: cadastros abandonados não deixam usuário algum.
+
+   O e-mail de verificação enviado na etapa 1 **não traz saudação nominal** — o nome do usuário só
+   é conhecido na etapa 3. `sendVerificationEmail` passa a receber `(to, code)`.
 2. **Login:** valida senha (Argon2id) e **exige e-mail verificado** — se não verificado,
    retorna `EMAIL_NOT_VERIFIED`. Em sucesso, emite access + refresh. Toda conta criada pelo fluxo
    acima já nasce verificada; a checagem permanece como defesa em profundidade.
@@ -195,11 +258,17 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
 ## 9. Requisitos Não-Funcionais e Segurança
 
 - **RNF-1** Senhas com **Argon2id**; nunca em texto puro; nunca retornadas.
-- **RNF-2** Refresh/verify/reset guardados como **hash**; valor cru só trafega uma vez.
-- **RNF-3** `forgot-password`, `signup/start` e `signup/verify` **não revelam** existência de
-  e-mail (respostas genéricas / mesmo tempo de resposta na medida do possível).
+- **RNF-2** Refresh, signup token, código de verificação e token de reset guardados como **hash**;
+  o valor cru só trafega uma vez.
+- **RNF-3** `forgot-password`, `signup/start` e `signup/verify` **não revelam** se um e-mail já é
+  **conta**: resposta genérica, mesmo status e — em `signup/start` — mesmo tempo de resposta, já
+  que o envio sai do caminho da resposta (D13). A distinção entre `OTP_INVALID` e `OTP_EXPIRED`
+  em `signup/verify` revela apenas se há um **cadastro pendente** para aquele e-mail, o que é
+  aceito conscientemente (D15) em troca de uma mensagem útil a quem tem o código vencido.
 - **RNF-4** Endpoints de `login`, `signup/start`, `signup/verify`, `forgot-password` e
-  `reset-password` são **rate-limited** (AD/D2 da 0002).
+  `reset-password` são **rate-limited** por IP (AD/D2 da 0002). Como esse limite é grosseiro e
+  por container, a proteção do cadastro contra força bruta e mail-bombing vem dos tetos **por
+  e-mail** da RN-8, não dele.
 - **RNF-5** Comparações de token/senha **timing-safe**.
 - **RNF-6** Chave JWT vinda do **SSM** (AD-13); rotação de chave não quebra tokens já emitidos
   além do TTL do access.
@@ -209,7 +278,9 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
 
 - **RN-1** E-mail é **único** (case-insensitive), tanto em `users` quanto entre cadastros pendentes.
 - **RN-2** Política de senha: **mínimo 8 caracteres**, sem complexidade obrigatória (orientação NIST).
-  `password` e `passwordConfirmation` devem ser **idênticas**; divergência ⇒ `PASSWORD_MISMATCH`.
+  Em **`signup/complete`**, `password` e `passwordConfirmation` devem ser **idênticas**;
+  divergência ⇒ `PASSWORD_MISMATCH`. `reset-password` e `change-password` seguem sem campo de
+  confirmação — a dupla digitação é exigida só na criação da conta.
 - **RN-3** Token/código expirado, usado ou inválido ⇒ erro apropriado, sem efeito colateral. O
   código OTP é **travado** ao exceder o limite de tentativas (`VERIFY_OTP_MAX_ATTEMPTS`).
 - **RN-4** Reset e troca de senha **revogam sessões** (refresh tokens) existentes.
@@ -217,6 +288,14 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
 - **RN-6** A conta só é criada em `signup/complete`. Se o e-mail tiver sido registrado por outro
   caminho entre o início e a conclusão, o cadastro falha com `EMAIL_IN_USE`.
 - **RN-7** O signup token **não é credencial de sessão**: só autoriza `signup/complete`.
+- **RN-8** Cada e-mail tem, numa janela de **24h**, um teto de **códigos emitidos**
+  (`SIGNUP_MAX_SENDS_PER_DAY`) e de **tentativas erradas acumuladas**
+  (`SIGNUP_MAX_FAILURES_PER_DAY`). Esses contadores **não são zerados** ao reiniciar o cadastro —
+  só ao virar a janela. Sem eles, o `attempts` por código seria contornável reiniciando o
+  cadastro (~7.200 tentativas/dia contra um espaço de 10⁶), e `signup/start` serviria de
+  mail-bombing contra endereços arbitrários. Atingido qualquer teto, `signup/start` e
+  `signup/verify` param de agir para aquele e-mail até a janela virar, **sem** alterar a resposta
+  genérica (RNF-3).
 
 ## 11. Critérios de Aceitação
 
@@ -234,6 +313,14 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
   categorias padrão, devolve access + refresh e **não pode ser repetido** com o mesmo token.
 - **CA-10** `signup/complete` com `password` diferente de `passwordConfirmation` falha com
   `PASSWORD_MISMATCH` e não cria conta alguma.
+- **CA-11** Um signup token vencido é rejeitado com `SIGNUP_TOKEN_EXPIRED`; um `signup/start`
+  posterior invalida o signup token emitido antes dele.
+- **CA-12** Dentro do cooldown, um novo `signup/start` não dispara e-mail e a resposta é
+  indistinguível de um envio bem-sucedido.
+- **CA-13** Esgotado o teto de tentativas erradas da janela (RN-8), novos códigos e novas
+  tentativas deixam de ser aceitos para aquele e-mail, ainda que o cadastro seja reiniciado.
+- **CA-14** Se a semeadura das categorias falhar durante `signup/complete`, nenhuma conta é
+  gravada e o signup token continua válido para nova tentativa.
 
 ## 12. Glossário
 
@@ -282,8 +369,24 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
   `/auth/verify-email/resend` deixam de existir. O produto ainda não tem usuários em produção,
   então não há cliente antigo a sustentar.
 
+### Decisões da revisão da v2.0 (2026-07-26)
+
+- **D13 — Envio fora do caminho da resposta:** `signup/start` responde 202 antes de o e-mail sair.
+  Com o envio síncrono, o caminho "e-mail livre" (INSERT + chamada ao Resend) levaria centenas de
+  ms a mais que o caminho "e-mail já cadastrado" (um SELECT), tornando a enumeração trivial por
+  cronômetro e esvaziando a RNF-3.
+- **D14 — `signup/complete` transacional:** consumo do token, criação do usuário e semeadura das
+  categorias numa transação só, com consumo por atualização condicional. Evita conta sem
+  categorias em falha parcial e transforma a corrida de duplo `complete` em erro previsto.
+- **D15 — `OTP_EXPIRED` mantido:** aceita-se que `signup/verify` revele a existência de um
+  cadastro **pendente** (não de conta). Colapsar tudo em `OTP_INVALID` deixaria quem tem código
+  vencido sem saber que basta pedir outro, e um cadastro pendente é informação de baixo valor
+  para um atacante.
+- **D16 — Tetos por e-mail (RN-8):** contadores de janela de 24h que o reinício do cadastro não
+  zera, respondendo à força bruta viabilizada por D11 e ao mail-bombing.
+
 > Todas as decisões foram resolvidas. Spec **Aprovada** em 2026-06-20; **v2.0 aprovada** em
-> 2026-07-26.
+> 2026-07-26, após revisão que originou D13–D16 e a RN-8.
 
 ## 14. Referências
 

@@ -52,7 +52,8 @@ Convenções da 0002: UUID (PD-2), `timestamptz` (PD-6), isolamento por `user_id
 
 ## 5. Categorias Padrão (seed no cadastro)
 
-No registro do usuário (0003), o sistema cria um conjunto padrão (proposta — *ver D2*):
+Ao concluir o cadastro (`signup/complete` da 0003), na mesma transação que cria a conta, o
+sistema semeia um conjunto padrão (proposta — *ver D2*):
 
 - **Despesas:** Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras,
   Contas e Serviços, Outros.
