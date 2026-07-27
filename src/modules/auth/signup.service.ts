@@ -1,6 +1,7 @@
 import type { EmailService } from '../../email/resend.js'
 import { env } from '../../shared/config/env.js'
-import { generateOtp, hashToken } from '../../shared/crypto.js'
+import { generateOtp, generateToken, hashToken } from '../../shared/crypto.js'
+import { AppError } from '../../shared/errors.js'
 import type { AuthRepository } from './auth.repository.js'
 import type { SignupRepository } from './signup.repository.js'
 
@@ -16,6 +17,12 @@ export interface SignupServiceDeps {
 
 export interface SignupService {
   start(email: string): Promise<{ message: string }>
+  verify(input: { email: string; code: string }): Promise<SignupTokenDto>
+}
+
+export interface SignupTokenDto {
+  signupToken: string
+  expiresInSeconds: number
 }
 
 // Same response whether the e-mail is free, taken, throttled or capped, so the
@@ -76,6 +83,41 @@ export function createSignupService(deps: SignupServiceDeps): SignupService {
       dispatch(() => email.sendVerificationEmail(address, code))
 
       return GENERIC_START
+    },
+
+    async verify({ email: emailInput, code }): Promise<SignupTokenDto> {
+      // One generic error for "no pending signup", "wrong code" and "locked
+      // code", so the endpoint doesn't become an account oracle (RNF-3).
+      const invalid = new AppError(400, 'OTP_INVALID', 'Invalid verification code')
+      const address = normalizeEmail(emailInput)
+      const now = new Date()
+
+      const row = await repo.findByEmail(address)
+      if (!row) throw invalid
+
+      const sameWindow = now.getTime() - row.windowStartedAt.getTime() < WINDOW_MS
+      if (sameWindow && row.failuresInWindow >= env.SIGNUP_MAX_FAILURES_PER_DAY) throw invalid
+
+      // Already verified: a second verify would overwrite the token handed to
+      // the first caller. Restarting is what `start` is for (spec §7.1.2).
+      if (row.verifiedAt) throw invalid
+
+      if (row.expiresAt.getTime() < now.getTime()) {
+        throw new AppError(400, 'OTP_EXPIRED', 'Verification code expired')
+      }
+      if (row.attempts >= env.VERIFY_OTP_MAX_ATTEMPTS) throw invalid
+      if (row.otpHash !== hashToken(code)) {
+        await repo.incrementFailure(row.id)
+        throw invalid
+      }
+
+      const token = generateToken()
+      await repo.markVerified(
+        row.id,
+        hashToken(token),
+        minutesFromNow(env.SIGNUP_TOKEN_TTL_MINUTES, now),
+      )
+      return { signupToken: token, expiresInSeconds: env.SIGNUP_TOKEN_TTL_MINUTES * 60 }
     },
   }
 }
