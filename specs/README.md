@@ -33,7 +33,7 @@ specs/NNNN-titulo-em-kebab-case.md
 |---|--------|--------|
 | [0001](./0001-visao-geral-do-produto.md) | Visão Geral do Produto | Aprovada |
 | [0002](./0002-arquitetura-tecnica.md) | Arquitetura Técnica | Aprovada |
-| [0003](./0003-autenticacao-e-contas.md) | Autenticação & Contas | Aprovada |
+| [0003](./0003-autenticacao-e-contas.md) | Autenticação & Contas | Implementada |
 | [0004](./0004-categorias.md) | Categorias | Aprovada |
 | [0005](./0005-transacoes.md) | Transações | Aprovada |
 | [0006](./0006-relatorios.md) | Relatórios | Aprovada |

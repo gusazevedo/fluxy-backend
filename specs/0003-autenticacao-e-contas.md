@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |-------|-------|
-| **Status** | Aprovada |
+| **Status** | Implementada |
 | **Autor** | Gustavo Azevedo |
 | **Criada em** | 2026-06-20 |
 | **Atualizada em** | 2026-07-26 |
