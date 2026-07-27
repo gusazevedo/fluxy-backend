@@ -1911,6 +1911,17 @@ Com o endpoint antigo fora, apagar o bloco `env` de `vitest.config.ts` (o arquiv
 Run: `npm test`
 Expected: tudo passa. Se algum teste de integração quebrar por pedir dois códigos para o **mesmo** e-mail dentro de 60s, o certo é o teste usar e-mails distintos — não reintroduzir o override global.
 
+- [ ] **Step 0b: Remover o código morto deixado pela Task 7**
+
+A revisão da Task 7 identificou três símbolos que ficaram sem um único chamador depois que o fluxo antigo saiu, porque `completeSignup` cria o usuário e semeia as categorias inline no comando SQL:
+
+- `seedDefaultCategories` — `src/modules/categories/category.defaults.ts`. Apagar a função; **manter** `DEFAULT_CATEGORIES`, que o `signup.service.ts` usa.
+- `CategoryRepository.insertMany` — `src/modules/categories/category.repository.ts`, na interface e na implementação. Só sobrevive em mocks: apagar também de `category.service.test.ts` e `transaction.service.test.ts`.
+- `AuthRepository.createUser` — `src/modules/auth/auth.repository.ts`, na interface e na implementação.
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: tudo verde. Se algum deles tiver chamador, **não apague** — reporte, porque significa que a análise estava errada.
+
 - [ ] **Step 1: Conferir a documentação de endpoints**
 
 Run: `grep -rn "auth/register\|verify-email" README.md DEPLOY.md`
