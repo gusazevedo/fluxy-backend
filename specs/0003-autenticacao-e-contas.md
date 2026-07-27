@@ -112,6 +112,12 @@ indistinguível de "token inexistente" — ambos `SIGNUP_TOKEN_INVALID`. Sem ess
 nunca virou usuário. A limpeza das pendentes é oportunista: `signup/start` apaga a linha vencida
 do próprio e-mail antes de criar a nova.
 
+> **Limitação conhecida.** Sendo oportunista, a limpeza só alcança e-mails que voltam a chamar
+> `signup/start`. Linhas de cadastros abandonados — e, por causa da D17, também as criadas para
+> e-mails que já são conta — permanecem até que isso aconteça. O volume é limitado a uma linha por
+> e-mail pelo índice único, e a RN-8 limita quantas vezes cada uma pode ser reescrita. Uma purga
+> agendada fica para quando houver volume que a justifique.
+
 > Tokens de alta entropia (refresh, reset, signup) e o código de verificação são guardados como
 > **hash SHA-256** (rápido e suficiente para segredos aleatórios). **Argon2id** é usado apenas
 > para **senhas**.
@@ -309,8 +315,6 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 - **CA-2** `signup/start` dispara um e-mail com código OTP de 6 dígitos e responde igual para
   e-mail livre e e-mail já cadastrado; no segundo caso, nenhum e-mail é enviado, mas a linha
   pendente é criada do mesmo jeito (D17).
-- **CA-15** Para um e-mail que já é conta, `signup/verify` com código errado responde igual ao de
-  um e-mail livre nas mesmas condições — inclusive quanto a `OTP_INVALID` vs `OTP_EXPIRED`.
 - **CA-3** Login com credenciais corretas retorna access + refresh; com incorretas, `INVALID_CREDENTIALS`.
 - **CA-4** Um access token expirado é rejeitado; o refresh gera um novo par e **invalida** o refresh anterior.
 - **CA-5** `forgot-password` responde igual para e-mail existente e inexistente.
@@ -330,6 +334,9 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   tentativas deixam de ser aceitos para aquele e-mail, ainda que o cadastro seja reiniciado.
 - **CA-14** Se a semeadura das categorias falhar durante `signup/complete`, nenhuma conta é
   gravada e o signup token continua válido para nova tentativa.
+- **CA-15** Para um e-mail que já é conta, `signup/verify` com código errado responde igual ao de
+  um e-mail livre nas mesmas condições — inclusive quanto a `OTP_INVALID` vs `OTP_EXPIRED` — e
+  `signup/start` consome a mesma cota da RN-8 nos dois casos.
 
 ## 12. Glossário
 

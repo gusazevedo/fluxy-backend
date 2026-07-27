@@ -1644,9 +1644,14 @@ export const signupRoutes: FastifyPluginAsyncTypebox = async (app) => {
     repo: createSignupRepository(app.db),
     users: authRepo,
     email: app.email,
+    // setImmediate, not `void task()`: starting the promise inline would run the
+    // send's synchronous prologue before the response, leaving a sliver of the
+    // timing asymmetry D13 exists to remove.
     dispatch: (task) => {
-      void task().catch((err: unknown) => {
-        app.log.error({ err }, 'failed to send the verification e-mail')
+      setImmediate(() => {
+        void task().catch((err: unknown) => {
+          app.log.error({ err }, 'failed to send the verification e-mail')
+        })
       })
     },
     signAccessToken: (userId) => app.jwt.sign({ sub: userId }, { expiresIn: env.ACCESS_TOKEN_TTL }),
