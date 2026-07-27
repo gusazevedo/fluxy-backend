@@ -160,6 +160,7 @@ POST /auth/signup/complete  { signupToken, firstName, lastName, password, passwo
 | Endpoint | Situação | Status | Código |
 |----------|----------|--------|--------|
 | `signup/start` | e-mail já é conta, dentro do cooldown, ou teto da janela atingido | 202 | — (resposta genérica) |
+| `signup/start` | falha no envio do e-mail | 500 | erro genérico do handler |
 | `signup/verify` | código errado, código travado por tentativas, ou sem cadastro pendente | 400 | `OTP_INVALID` |
 | `signup/verify` | cadastro pendente existe mas o código expirou | 400 | `OTP_EXPIRED` |
 | `signup/complete` | token inexistente, não verificado ou já usado | 400 | `SIGNUP_TOKEN_INVALID` |
@@ -407,6 +408,10 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   Efeito colateral aceito: o endereço de um usuário existente pode receber esse aviso sem que ele
   tenha pedido nada. É informação útil de segurança, e a RN-8 limita a no máximo
   `SIGNUP_MAX_SENDS_PER_DAY` avisos por endereço por dia.
+
+  Falha no envio **propaga** (500), em vez de virar um 202 silencioso. Não é canal de vazamento:
+  os dois caminhos fazem a mesma chamada ao Resend, então a chance de falha é a mesma e o erro não
+  denuncia qual ramo rodou. Engolir a falha devolveria um 202 mentindo que o código foi enviado.
 - **D14 — `signup/complete` atômico via CTE:** consumo do token, criação do usuário e semeadura
   das categorias num **único comando SQL** (`WITH consumed AS (DELETE ... RETURNING) ...`). Evita
   conta sem categorias em falha parcial e transforma a corrida de duplo `complete` em erro
