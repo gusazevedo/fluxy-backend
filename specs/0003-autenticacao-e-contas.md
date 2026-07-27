@@ -203,9 +203,11 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 ## 7. Fluxos Principais
 
 1. **Cadastro (3 etapas, e-mail primeiro):**
-   1. `signup/start` recebe `{ email }`. Se o e-mail **já pertence a um usuário**, nada acontece;
-      caso contrário, cria/atualiza a linha em `signup_verifications` com um **código OTP de 6
-      dígitos** e o envia via Resend. A resposta é **sempre** a mesma (RNF-3) e é devolvida
+   1. `signup/start` recebe `{ email }` e **sempre** cria/atualiza a linha em
+      `signup_verifications` com um **código OTP de 6 dígitos** — inclusive quando o e-mail já
+      pertence a um usuário (D17). O que muda nesse caso é apenas que **o e-mail não é enviado**:
+      o código existe no banco, mas ninguém o recebe, então é inadivinhável. A resposta é
+      **sempre** a mesma (RNF-3) e é devolvida
       **antes** do envio ser concluído (D13), de modo que os dois caminhos levem o mesmo tempo;
       falha de envio vira log, não erro de resposta. Chamar de novo com o mesmo e-mail é o
       **reenvio**: gera um código novo invalidando o anterior, respeitando o cooldown e os tetos
@@ -265,8 +267,8 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 - **RNF-3** `forgot-password`, `signup/start` e `signup/verify` **não revelam** se um e-mail já é
   **conta**: resposta genérica, mesmo status e — em `signup/start` — mesmo tempo de resposta, já
   que o envio sai do caminho da resposta (D13). A distinção entre `OTP_INVALID` e `OTP_EXPIRED`
-  em `signup/verify` revela apenas se há um **cadastro pendente** para aquele e-mail, o que é
-  aceito conscientemente (D15) em troca de uma mensagem útil a quem tem o código vencido.
+  em `signup/verify` **não** revela existência de conta, porque `signup/start` cria a linha
+  pendente para qualquer e-mail (D17) — os dois casos são indistinguíveis pelo `verify`.
 - **RNF-4** Endpoints de `login`, `signup/start`, `signup/verify`, `forgot-password` e
   `reset-password` são **rate-limited** por IP (AD/D2 da 0002). Como esse limite é grosseiro e
   por container, a proteção do cadastro contra força bruta e mail-bombing vem dos tetos **por
@@ -287,8 +289,10 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   código OTP é **travado** ao exceder o limite de tentativas (`VERIFY_OTP_MAX_ATTEMPTS`).
 - **RN-4** Reset e troca de senha **revogam sessões** (refresh tokens) existentes.
 - **RN-5** Login só é permitido com **e-mail verificado**; caso contrário, `EMAIL_NOT_VERIFIED`.
-- **RN-6** A conta só é criada em `signup/complete`. Se o e-mail tiver sido registrado por outro
-  caminho entre o início e a conclusão, o cadastro falha com `EMAIL_IN_USE`.
+- **RN-6** A conta só é criada em `signup/complete`. Se o e-mail já pertencer a um usuário — seja
+  porque virou conta entre o início e a conclusão, seja porque a linha pendente foi criada para um
+  e-mail que já era conta (D17) —, o cadastro falha com `EMAIL_IN_USE`. A garantia final é o índice
+  único de `users.email`.
 - **RN-7** O signup token **não é credencial de sessão**: só autoriza `signup/complete`.
 - **RN-8** Cada e-mail tem, numa janela de **24h**, um teto de **códigos emitidos**
   (`SIGNUP_MAX_SENDS_PER_DAY`) e de **tentativas erradas acumuladas**
@@ -303,7 +307,10 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 
 - **CA-1** Não é possível cadastrar dois usuários com o mesmo e-mail (case-insensitive).
 - **CA-2** `signup/start` dispara um e-mail com código OTP de 6 dígitos e responde igual para
-  e-mail livre e e-mail já cadastrado; no segundo caso, nenhum e-mail é enviado.
+  e-mail livre e e-mail já cadastrado; no segundo caso, nenhum e-mail é enviado, mas a linha
+  pendente é criada do mesmo jeito (D17).
+- **CA-15** Para um e-mail que já é conta, `signup/verify` com código errado responde igual ao de
+  um e-mail livre nas mesmas condições — inclusive quanto a `OTP_INVALID` vs `OTP_EXPIRED`.
 - **CA-3** Login com credenciais corretas retorna access + refresh; com incorretas, `INVALID_CREDENTIALS`.
 - **CA-4** Um access token expirado é rejeitado; o refresh gera um novo par e **invalida** o refresh anterior.
 - **CA-5** `forgot-password` responde igual para e-mail existente e inexistente.
@@ -386,12 +393,20 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   (testes). Um comando único é atômico no Postgres em **qualquer** driver, então é a única
   primitiva comum aos três ambientes sem revisar a AD-8. Custo aceito: esse comando é SQL cru,
   isolado no repositório, em vez do query builder tipado.
-- **D15 — `OTP_EXPIRED` mantido:** aceita-se que `signup/verify` revele a existência de um
-  cadastro **pendente** (não de conta). Colapsar tudo em `OTP_INVALID` deixaria quem tem código
-  vencido sem saber que basta pedir outro, e um cadastro pendente é informação de baixo valor
-  para um atacante.
+- **D15 — `OTP_EXPIRED` mantido:** colapsar tudo em `OTP_INVALID` deixaria quem tem código vencido
+  sem saber que basta pedir outro. **Revisada por D17**, que remove o vazamento que a justificava.
 - **D16 — Tetos por e-mail (RN-8):** contadores de janela de 24h que o reinício do cadastro não
   zera, respondendo à força bruta viabilizada por D11 e ao mail-bombing.
+- **D17 — `signup/start` cria a linha pendente para qualquer e-mail:** inclusive para endereços que
+  já são conta; o que muda nesses casos é só o envio, que não acontece. Motivo: com a linha sendo
+  criada apenas para e-mails livres, a D15 virava um **oráculo de conta**. Bastava chamar
+  `signup/start(X)`, esperar o OTP expirar e chamar `signup/verify(X, "000000")` — `OTP_EXPIRED`
+  provava que existia linha pendente, logo que X **não** era conta, e `OTP_INVALID` provava o
+  contrário. Isso é exatamente o que a RNF-3 promete que o `verify` não faz. Criando a linha nos
+  dois casos, os caminhos ficam indistinguíveis e a D15 pode ser mantida. O código gravado para um
+  e-mail que já é conta nunca é enviado a ninguém, então é inadivinhável (10⁻⁶ por tentativa, com
+  o teto de tentativas da RN-8); e, se ainda assim fosse acertado, `signup/complete` esbarra no
+  índice único de `users.email` e devolve `EMAIL_IN_USE` (RN-6), sem criar conta alguma.
 
 > Todas as decisões foram resolvidas. Spec **Aprovada** em 2026-06-20; **v2.0 aprovada** em
 > 2026-07-26, após revisão que originou D13–D16 e a RN-8.
