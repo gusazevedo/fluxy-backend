@@ -1,14 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hashToken } from '../../shared/crypto.js'
 import type { SignupVerification } from '../../shared/database/schema.js'
+import * as passwordModule from '../../shared/password.js'
 import { createSignupService, type SignupService } from './signup.service.js'
 import type { SignupRepository, StartInput } from './signup.repository.js'
+
+interface RefreshTokenCall {
+  userId: string
+  tokenHash: string
+  expiresAt: Date
+}
 
 interface Harness {
   service: SignupService
   rows: Map<string, SignupVerification>
   sent: { to: string; code: string }[]
   knownUsers: Set<string>
+  refreshTokenCalls: RefreshTokenCall[]
 }
 
 function makeRow(email: string, overrides: Partial<SignupVerification> = {}): SignupVerification {
@@ -41,6 +49,7 @@ function createHarness(serviceFactory: typeof createSignupService = createSignup
   const rows = new Map<string, SignupVerification>()
   const sent: { to: string; code: string }[] = []
   const knownUsers = new Set<string>()
+  const refreshTokenCalls: RefreshTokenCall[] = []
 
   const repo: SignupRepository = {
     async findByEmail(email) {
@@ -110,10 +119,12 @@ function createHarness(serviceFactory: typeof createSignupService = createSignup
       void task()
     },
     signAccessToken: (userId) => `access-${userId}`,
-    createRefreshToken: async () => {},
+    createRefreshToken: async (userId, tokenHash, expiresAt) => {
+      refreshTokenCalls.push({ userId, tokenHash, expiresAt })
+    },
   })
 
-  return { service, rows, sent, knownUsers }
+  return { service, rows, sent, knownUsers, refreshTokenCalls }
 }
 
 describe('SignupService.start', () => {
@@ -386,6 +397,17 @@ describe('SignupService.complete', () => {
     expect(pair.tokenType).toBe('Bearer')
     // The pending row is gone: the token cannot be replayed (CA-9).
     expect(h.rows.has('done@example.com')).toBe(false)
+    // RNF-2: the refresh token is persisted hashed, never in the clear, and
+    // exactly once — a stray extra call or a raw write would pass a looser
+    // `toBeTypeOf('string')` assertion but not this one.
+    expect(h.refreshTokenCalls).toHaveLength(1)
+    const [refreshCall] = h.refreshTokenCalls
+    expect(refreshCall.userId).toBe('user-done@example.com')
+    expect(refreshCall.tokenHash).toBe(hashToken(pair.refreshToken))
+    expect(refreshCall.tokenHash).not.toBe(pair.refreshToken)
+    const refreshTtlDays = (refreshCall.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)
+    expect(refreshTtlDays).toBeGreaterThan(29)
+    expect(refreshTtlDays).toBeLessThanOrEqual(30)
   })
 
   it('rejects a mismatched confirmation before touching the database', async () => {
@@ -408,6 +430,21 @@ describe('SignupService.complete', () => {
     await expect(h.service.complete({ signupToken: 'nope', ...validInput })).rejects.toMatchObject({
       code: 'SIGNUP_TOKEN_INVALID',
     })
+  })
+
+  it('rejects an unrecognized token before hashing the password (Argon2id gate)', async () => {
+    // A forged/unknown signup token must fail fast, without paying Argon2id's
+    // ~19MiB/~50ms cost: unlike login, there is no account existence to hide
+    // behind the timing here (the token has 256 bits of entropy already).
+    const hashPasswordSpy = vi.spyOn(passwordModule, 'hashPassword')
+    const h = createHarness()
+
+    await expect(h.service.complete({ signupToken: 'nope', ...validInput })).rejects.toMatchObject({
+      code: 'SIGNUP_TOKEN_INVALID',
+    })
+    expect(hashPasswordSpy).not.toHaveBeenCalled()
+
+    hashPasswordSpy.mockRestore()
   })
 
   it('rejects an expired token with SIGNUP_TOKEN_EXPIRED', async () => {

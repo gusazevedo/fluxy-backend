@@ -147,9 +147,15 @@ export function createSignupService(deps: SignupServiceDeps): SignupService {
       const now = new Date()
 
       // Pre-check only to tell EXPIRED from INVALID; the authoritative check is
-      // the conditional DELETE inside completeSignup.
+      // the conditional DELETE inside completeSignup. Also gates Argon2id
+      // behind a recognized token: unlike login, a forged signup token isn't
+      // hiding account existence (256 bits of entropy, nothing to guess), so
+      // paying the hashing cost for it buys nothing and is free to skip.
       const pending = await repo.findByTokenHash(tokenHash)
-      if (pending?.signupTokenExpiresAt && pending.signupTokenExpiresAt.getTime() < now.getTime()) {
+      if (!pending) {
+        throw new AppError(400, 'SIGNUP_TOKEN_INVALID', 'Invalid signup token')
+      }
+      if (pending.signupTokenExpiresAt && pending.signupTokenExpiresAt.getTime() < now.getTime()) {
         throw new AppError(400, 'SIGNUP_TOKEN_EXPIRED', 'Signup token expired')
       }
 
