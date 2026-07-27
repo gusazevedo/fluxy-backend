@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { hashToken } from '../../shared/crypto.js'
 import type { SignupVerification } from '../../shared/database/schema.js'
 import * as passwordModule from '../../shared/password.js'
@@ -40,12 +40,7 @@ function makeRow(email: string, overrides: Partial<SignupVerification> = {}): Si
   }
 }
 
-// `createSignupService` defaults to the module-level import; the resend-cooldown
-// test below passes a freshly re-imported factory instead, because
-// vitest.config.ts pins VERIFY_OTP_RESEND_COOLDOWN_SECONDS=0 for the whole
-// suite (so other tests can resend immediately) and `env` is computed once at
-// module load, so only a fresh import after `vi.stubEnv` sees a real cooldown.
-function createHarness(serviceFactory: typeof createSignupService = createSignupService): Harness {
+function createHarness(): Harness {
   const rows = new Map<string, SignupVerification>()
   const sent: { to: string; code: string }[] = []
   const knownUsers = new Set<string>()
@@ -101,7 +96,7 @@ function createHarness(serviceFactory: typeof createSignupService = createSignup
     },
   }
 
-  const service = serviceFactory({
+  const service = createSignupService({
     repo,
     users: {
       async findUserByEmail(email) {
@@ -128,11 +123,6 @@ function createHarness(serviceFactory: typeof createSignupService = createSignup
 }
 
 describe('SignupService.start', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-    vi.resetModules()
-  })
-
   it('sends a 6-digit code for an e-mail that is free', async () => {
     const h = createHarness()
 
@@ -160,12 +150,7 @@ describe('SignupService.start', () => {
   })
 
   it('skips the send while inside the resend cooldown', async () => {
-    // Needs a real (non-zero) cooldown, unlike vitest.config.ts's suite-wide
-    // override; see the comment on createHarness for why the re-import.
-    vi.stubEnv('VERIFY_OTP_RESEND_COOLDOWN_SECONDS', '60')
-    vi.resetModules()
-    const { createSignupService: freshFactory } = await import('./signup.service.js')
-    const h = createHarness(freshFactory)
+    const h = createHarness()
     await h.service.start('cool@example.com')
 
     await h.service.start('cool@example.com')
@@ -186,13 +171,7 @@ describe('SignupService.start', () => {
   })
 
   it('consumes the send quota and cooldown for a taken e-mail exactly like a free one (D17)', async () => {
-    // Needs a real (non-zero) cooldown, unlike vitest.config.ts's suite-wide
-    // override, to prove the row isn't renewed on the second call; see the
-    // comment on createHarness for why the re-import.
-    vi.stubEnv('VERIFY_OTP_RESEND_COOLDOWN_SECONDS', '60')
-    vi.resetModules()
-    const { createSignupService: freshFactory } = await import('./signup.service.js')
-    const h = createHarness(freshFactory)
+    const h = createHarness()
     h.knownUsers.add('quota-taken@example.com')
 
     await h.service.start('quota-taken@example.com')
