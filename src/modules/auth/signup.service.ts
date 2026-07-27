@@ -49,7 +49,11 @@ export function createSignupService(deps: SignupServiceDeps): SignupService {
       const address = normalizeEmail(emailInput)
       const now = new Date()
 
-      if (await users.findUserByEmail(address)) return GENERIC_START
+      // The pending row is created for every e-mail, taken or not (spec D17):
+      // creating it only for free e-mails let the OTP_INVALID/OTP_EXPIRED
+      // split in `verify` work as an account oracle. What "already an
+      // account" controls from here on is only whether the code is sent.
+      const isAccount = (await users.findUserByEmail(address)) !== undefined
 
       const existing = await repo.findByEmail(address)
 
@@ -79,8 +83,10 @@ export function createSignupService(deps: SignupServiceDeps): SignupService {
       })
 
       // Off the response path so a free e-mail and a taken one take the same
-      // time to answer (D13); a failed send is logged, not surfaced.
-      dispatch(() => email.sendVerificationEmail(address, code))
+      // time to answer (D13); a failed send is logged, not surfaced. Skipped
+      // entirely for a taken e-mail (D17): the code is stored but never sent,
+      // so it stays unguessable.
+      if (!isAccount) dispatch(() => email.sendVerificationEmail(address, code))
 
       return GENERIC_START
     },

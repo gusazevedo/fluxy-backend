@@ -143,7 +143,9 @@ describe('SignupService.start', () => {
 
     expect(res.message).toContain('If the e-mail is valid')
     expect(h.sent).toHaveLength(0)
-    expect(h.rows.has('taken@example.com')).toBe(false)
+    // D17: the pending row is created even for a taken e-mail; only the send
+    // is skipped, so `verify` can't tell the two cases apart.
+    expect(h.rows.has('taken@example.com')).toBe(true)
   })
 
   it('skips the send while inside the resend cooldown', async () => {
@@ -232,6 +234,13 @@ describe('SignupService.verify', () => {
     // Only the hash is stored.
     expect(h.rows.get('ok@example.com')?.signupTokenHash).toBe(hashToken(res.signupToken))
     expect(h.rows.get('ok@example.com')?.verifiedAt).not.toBeNull()
+    // The stored TTL must come from SIGNUP_TOKEN_TTL_MINUTES (15min), not from
+    // VERIFY_OTP_TTL_MINUTES (5min) — Task 5's SQL checks
+    // `signup_token_expires_at > now` against this value.
+    const signupTokenTtlMinutes =
+      (h.rows.get('ok@example.com')!.signupTokenExpiresAt!.getTime() - Date.now()) / 60_000
+    expect(signupTokenTtlMinutes).toBeGreaterThan(10)
+    expect(signupTokenTtlMinutes).toBeLessThanOrEqual(15)
   })
 
   it('counts a wrong code against both counters and fails with OTP_INVALID', async () => {
@@ -262,6 +271,28 @@ describe('SignupService.verify', () => {
     await expect(h.service.verify({ email: 'old@example.com', code })).rejects.toMatchObject({
       code: 'OTP_EXPIRED',
     })
+  })
+
+  it('answers an expired code the same way for a taken e-mail as for a free one (D17, CA-15)', async () => {
+    const h = createHarness()
+    h.knownUsers.add('taken@example.com')
+
+    // `start` never sends a code for the taken e-mail, but D17 says it still
+    // creates the pending row, so both e-mails reach `verify` in the exact
+    // same shape: a row with an expired OTP.
+    await h.service.start('taken@example.com')
+    await h.service.start('free@example.com')
+    h.rows.get('taken@example.com')!.expiresAt = new Date(Date.now() - 1000)
+    h.rows.get('free@example.com')!.expiresAt = new Date(Date.now() - 1000)
+
+    const takenResult = await h.service.verify({ email: 'taken@example.com', code: '000000' }).catch((e) => e)
+    const freeResult = await h.service.verify({ email: 'free@example.com', code: '000000' }).catch((e) => e)
+
+    // Before D17, the taken e-mail had no pending row, so this would have
+    // been OTP_INVALID here against OTP_EXPIRED for the free e-mail — an
+    // account oracle. With the row always created, both answer the same.
+    expect(takenResult).toMatchObject({ statusCode: 400, code: 'OTP_EXPIRED' })
+    expect(freeResult).toMatchObject({ statusCode: 400, code: 'OTP_EXPIRED' })
   })
 
   it('locks the code once the per-code attempt limit is reached', async () => {
