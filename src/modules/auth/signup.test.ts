@@ -1,15 +1,20 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../app.js'
+import type { Database } from '../../shared/database/client.js'
+import { users } from '../../shared/database/schema.js'
+import { hashPassword } from '../../shared/password.js'
 import { createFakeEmail, createTestDb, flushAsync, type SentEmail } from '../../test/helpers.js'
 
 describe('signup flow', () => {
   let app: FastifyInstance
+  let db: Database
   let close: () => Promise<void>
   let sent: SentEmail[]
 
   beforeAll(async () => {
     const testDb = await createTestDb()
+    db = testDb.db
     close = testDb.close
     const fake = createFakeEmail()
     sent = fake.sent
@@ -147,6 +152,43 @@ describe('signup flow', () => {
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error.code).toBe('PASSWORD_MISMATCH')
+  })
+
+  it('maps a race against a concurrent account to 409 EMAIL_IN_USE', async () => {
+    const email = 'carla@example.com'
+    await start(email)
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/auth/signup/verify',
+      payload: { email, code: await lastCode(email) },
+    })
+    expect(verify.statusCode).toBe(200)
+    const { signupToken } = verify.json()
+
+    // The address becomes an account behind this signup's back, between
+    // verify and complete (RN-6). Inserted straight into the test DB, not
+    // through POST /auth/register — that endpoint is going away next.
+    await db.insert(users).values({
+      email,
+      firstName: 'Carla',
+      lastName: 'Existing',
+      passwordHash: await hashPassword('some-other-password'),
+      emailVerified: true,
+    })
+
+    const complete = await app.inject({
+      method: 'POST',
+      url: '/auth/signup/complete',
+      payload: {
+        signupToken,
+        firstName: 'Carla',
+        lastName: 'Nova',
+        password: 'password123',
+        passwordConfirmation: 'password123',
+      },
+    })
+    expect(complete.statusCode).toBe(409)
+    expect(complete.json().error.code).toBe('EMAIL_IN_USE')
   })
 
   it('validates the payloads', async () => {
