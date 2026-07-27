@@ -79,7 +79,7 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
     // Only one verification code is active at a time; supersede any previous one.
     await repo.invalidateActiveAuthTokens(user.id, 'email_verify')
     await repo.createAuthToken(user.id, hashToken(code), 'email_verify', minutesFromNow(env.VERIFY_OTP_TTL_MINUTES))
-    await email.sendVerificationEmail(user.email, code, user.firstName)
+    await email.sendVerificationEmail(user.email, code)
   }
 
   async function issueTokens(userId: string): Promise<TokenPair> {

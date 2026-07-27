@@ -3,7 +3,7 @@ import { env } from '../shared/config/env.js'
 import { getResendApiKey } from '../shared/secrets.js'
 
 export interface EmailService {
-  sendVerificationEmail(to: string, code: string, firstName: string): Promise<void>
+  sendVerificationEmail(to: string, code: string): Promise<void>
   sendPasswordResetEmail(to: string, link: string): Promise<void>
 }
 
@@ -24,8 +24,7 @@ function resendService(apiKey: string): EmailService {
   }
 
   return {
-    sendVerificationEmail: (to, code, firstName) =>
-      send(to, 'Confirme seu e-mail no Fluxy', verificationHtml(code, firstName)),
+    sendVerificationEmail: (to, code) => send(to, 'Confirme seu e-mail no Fluxy', verificationHtml(code)),
     sendPasswordResetEmail: (to, link) =>
       send(to, 'Redefinição de senha no Fluxy', passwordResetHtml(link)),
   }
@@ -35,8 +34,8 @@ function resendService(apiKey: string): EmailService {
 // of sending. Tests inject their own capturing implementation.
 function consoleService(): EmailService {
   return {
-    async sendVerificationEmail(to, code, firstName): Promise<void> {
-      console.info(`[email] verification code for ${firstName} <${to}>: ${code}`)
+    async sendVerificationEmail(to, code): Promise<void> {
+      console.info(`[email] verification code for <${to}>: ${code}`)
     },
     async sendPasswordResetEmail(to, link): Promise<void> {
       console.info(`[email] password reset link for ${to}: ${link}`)
@@ -49,8 +48,14 @@ export async function createEmailService(): Promise<EmailService> {
   return apiKey ? resendService(apiKey) : consoleService()
 }
 
-function verificationHtml(code: string, firstName: string): string {
-  return `<p>Olá, ${firstName}!</p><p>Seu código de confirmação no Fluxy é:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px">${code}</p><p>O código expira em 5 minutos.</p>`
+function verificationHtml(code: string): string {
+  return `
+    <p>Olá!</p>
+    <p>Seu código de verificação do Fluxy é:</p>
+    <p style="font-size:24px;font-weight:bold;letter-spacing:4px">${code}</p>
+    <p>O código expira em ${env.VERIFY_OTP_TTL_MINUTES} minutos.</p>
+    <p>Se você não pediu este código, ignore este e-mail.</p>
+  `
 }
 
 function passwordResetHtml(link: string): string {
