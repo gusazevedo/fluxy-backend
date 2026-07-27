@@ -185,6 +185,19 @@ describe('SignupService.start', () => {
     expect(h.sent).toHaveLength(1)
   })
 
+  it('stops sending once the daily failure cap is reached (RN-8)', async () => {
+    const h = createHarness()
+    await h.service.start('brute@example.com')
+    const row = h.rows.get('brute@example.com')!
+    row.failuresInWindow = 20
+    row.lastSentAt = new Date(Date.now() - 120_000)
+
+    const res = await h.service.start('brute@example.com')
+
+    expect(res.message).toContain('If the e-mail is valid')
+    expect(h.sent).toHaveLength(1)
+  })
+
   it('resets the window counters after 24h', async () => {
     const h = createHarness()
     await h.service.start('window@example.com')
