@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../app.js'
-import { authenticate, createFakeEmail, createTestDb, flushAsync, type SentEmail } from '../../test/helpers.js'
+import { authenticate, createFakeEmail, createTestDb, type SentEmail } from '../../test/helpers.js'
 
 function tokenFromLink(link: string): string {
   return new URL(link).searchParams.get('token') ?? ''
@@ -32,7 +32,6 @@ describe('auth flows', () => {
   /** Runs a fresh signup up to a valid signup token, reading the OTP from `sent`. */
   async function signupToken(email: string): Promise<string> {
     await app.inject({ method: 'POST', url: '/auth/signup/start', payload: { email } })
-    await flushAsync()
     const code = sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)?.code ?? ''
     const verify = await app.inject({
       method: 'POST',

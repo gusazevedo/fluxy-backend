@@ -5,6 +5,7 @@ import { getResendApiKey } from '../shared/secrets.js'
 export interface EmailService {
   sendVerificationEmail(to: string, code: string): Promise<void>
   sendPasswordResetEmail(to: string, link: string): Promise<void>
+  sendSignupAttemptEmail(to: string): Promise<void>
 }
 
 declare module 'fastify' {
@@ -27,6 +28,7 @@ function resendService(apiKey: string): EmailService {
     sendVerificationEmail: (to, code) => send(to, 'Confirme seu e-mail no Fluxy', verificationHtml(code)),
     sendPasswordResetEmail: (to, link) =>
       send(to, 'Redefinição de senha no Fluxy', passwordResetHtml(link)),
+    sendSignupAttemptEmail: (to) => send(to, 'Tentativa de cadastro no Fluxy', signupAttemptHtml()),
   }
 }
 
@@ -39,6 +41,9 @@ function consoleService(): EmailService {
     },
     async sendPasswordResetEmail(to, link): Promise<void> {
       console.info(`[email] password reset link for ${to}: ${link}`)
+    },
+    async sendSignupAttemptEmail(to): Promise<void> {
+      console.info(`[email] signup attempt warning for <${to}>`)
     },
   }
 }
@@ -60,4 +65,16 @@ function verificationHtml(code: string): string {
 
 function passwordResetHtml(link: string): string {
   return `<p>Para redefinir sua senha no Fluxy, clique no link abaixo:</p><p><a href="${link}">${link}</a></p>`
+}
+
+// D13: warns the address holder that someone tried to sign up with an e-mail
+// that is already theirs. No code, no action link with a token — just enough
+// to point them at logging in or recovering the password.
+function signupAttemptHtml(): string {
+  return `
+    <p>Olá!</p>
+    <p>Alguém tentou criar uma conta no Fluxy usando este e-mail, que já pertence a uma conta existente.</p>
+    <p>Se foi você, é só entrar normalmente ou usar a opção "esqueci minha senha" caso não lembre a senha.</p>
+    <p>Se não foi você, pode ignorar este e-mail.</p>
+  `
 }

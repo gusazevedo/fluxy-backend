@@ -4,7 +4,7 @@ import { buildApp } from '../../app.js'
 import type { Database } from '../../shared/database/client.js'
 import { users } from '../../shared/database/schema.js'
 import { hashPassword } from '../../shared/password.js'
-import { createFakeEmail, createTestDb, flushAsync, type SentEmail } from '../../test/helpers.js'
+import { createFakeEmail, createTestDb, type SentEmail } from '../../test/helpers.js'
 
 describe('signup flow', () => {
   let app: FastifyInstance
@@ -27,8 +27,6 @@ describe('signup flow', () => {
   })
 
   async function lastCode(to: string): Promise<string> {
-    // The send is dispatched off the response path (D13), so let it land.
-    await flushAsync()
     return sent.filter((e) => e.kind === 'verify' && e.to === to).at(-1)?.code ?? ''
   }
 
@@ -114,11 +112,13 @@ describe('signup flow', () => {
     expect(replay.json().error.code).toBe('SIGNUP_TOKEN_INVALID')
   })
 
-  it('answers identically and sends nothing for an e-mail that is already an account', async () => {
+  it('answers identically and sends a signup-attempt warning, not the code, for an e-mail that is already an account', async () => {
     const before = sent.length
     expect(await start('ana@example.com')).toBe(202)
-    await flushAsync()
-    expect(sent).toHaveLength(before)
+    const newlySent = sent.slice(before)
+    expect(newlySent).toHaveLength(1)
+    expect(newlySent[0]).toMatchObject({ kind: 'attempt', to: 'ana@example.com' })
+    expect(newlySent[0].code).toBeUndefined()
   })
 
   it('logs in with the password chosen at signup', async () => {

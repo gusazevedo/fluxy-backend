@@ -13,8 +13,6 @@ export interface SignupServiceDeps {
   repo: SignupRepository
   users: Pick<AuthRepository, 'findUserByEmail'>
   email: EmailService
-  /** Runs the e-mail send off the response path (spec D13). */
-  dispatch: (task: () => Promise<void>) => void
   signAccessToken: (userId: string) => string
   createRefreshToken: (userId: string, tokenHash: string, expiresAt: Date) => Promise<void>
 }
@@ -47,7 +45,7 @@ const GENERIC_START = {
 const WINDOW_MS = 24 * 60 * 60 * 1000
 
 export function createSignupService(deps: SignupServiceDeps): SignupService {
-  const { repo, users, email, dispatch } = deps
+  const { repo, users, email } = deps
 
   return {
     async start(emailInput): Promise<{ message: string }> {
@@ -87,11 +85,17 @@ export function createSignupService(deps: SignupServiceDeps): SignupService {
         windowStartedAt,
       })
 
-      // Off the response path so a free e-mail and a taken one take the same
-      // time to answer (D13); a failed send is logged, not surfaced. Skipped
-      // entirely for a taken e-mail (D17): the code is stored but never sent,
-      // so it stays unguessable.
-      if (!isAccount) dispatch(() => email.sendVerificationEmail(address, code))
+      // D13: always send exactly one e-mail and await it, so a free address
+      // and a taken one do the same amount of work — same queries, one
+      // network call each — and the response time doesn't tell them apart.
+      // For a taken address (D17), the code is stored but never sent to
+      // anyone, so it stays unguessable; a signup-attempt warning goes out
+      // instead, pointing at login/password recovery.
+      if (isAccount) {
+        await email.sendSignupAttemptEmail(address)
+      } else {
+        await email.sendVerificationEmail(address, code)
+      }
 
       return GENERIC_START
     },

@@ -11,10 +11,16 @@ interface RefreshTokenCall {
   expiresAt: Date
 }
 
+interface SentEmail {
+  kind: 'verify' | 'attempt'
+  to: string
+  code?: string
+}
+
 interface Harness {
   service: SignupService
   rows: Map<string, SignupVerification>
-  sent: { to: string; code: string }[]
+  sent: SentEmail[]
   knownUsers: Set<string>
   refreshTokenCalls: RefreshTokenCall[]
 }
@@ -42,7 +48,7 @@ function makeRow(email: string, overrides: Partial<SignupVerification> = {}): Si
 
 function createHarness(): Harness {
   const rows = new Map<string, SignupVerification>()
-  const sent: { to: string; code: string }[] = []
+  const sent: SentEmail[] = []
   const knownUsers = new Set<string>()
   const refreshTokenCalls: RefreshTokenCall[] = []
 
@@ -105,13 +111,12 @@ function createHarness(): Harness {
     },
     email: {
       async sendVerificationEmail(to, code) {
-        sent.push({ to, code })
+        sent.push({ kind: 'verify', to, code })
       },
       async sendPasswordResetEmail() {},
-    },
-    // Unit tests run the send inline so assertions don't race the dispatch.
-    dispatch: (task) => {
-      void task()
+      async sendSignupAttemptEmail(to) {
+        sent.push({ kind: 'attempt', to })
+      },
     },
     signAccessToken: (userId) => `access-${userId}`,
     createRefreshToken: async (userId, tokenHash, expiresAt) => {
@@ -130,23 +135,43 @@ describe('SignupService.start', () => {
 
     expect(res.message).toContain('If the e-mail is valid')
     expect(h.sent).toHaveLength(1)
+    expect(h.sent[0].kind).toBe('verify')
     expect(h.sent[0].to).toBe('new@example.com')
     expect(h.sent[0].code).toMatch(/^[0-9]{6}$/)
     // The raw code is never stored.
-    expect(h.rows.get('new@example.com')?.otpHash).toBe(hashToken(h.sent[0].code))
+    expect(h.rows.get('new@example.com')?.otpHash).toBe(hashToken(h.sent[0].code!))
   })
 
-  it('says exactly the same thing and sends nothing when the e-mail is an account', async () => {
+  it('says exactly the same thing and sends a signup-attempt warning, not the code, when the e-mail is an account', async () => {
     const h = createHarness()
     h.knownUsers.add('taken@example.com')
 
     const res = await h.service.start('taken@example.com')
 
     expect(res.message).toContain('If the e-mail is valid')
-    expect(h.sent).toHaveLength(0)
-    // D17: the pending row is created even for a taken e-mail; only the send
-    // is skipped, so `verify` can't tell the two cases apart.
+    expect(h.sent).toHaveLength(1)
+    expect(h.sent[0]).toMatchObject({ kind: 'attempt', to: 'taken@example.com' })
+    expect(h.sent[0].code).toBeUndefined()
+    // D17: the pending row is created even for a taken e-mail; only the
+    // e-mail's content differs, so `verify` can't tell the two cases apart.
     expect(h.rows.has('taken@example.com')).toBe(true)
+  })
+
+  it('sends exactly one signup-attempt warning for a taken e-mail, never the code stored for it (D13)', async () => {
+    const h = createHarness()
+    h.knownUsers.add('warn@example.com')
+
+    await h.service.start('warn@example.com')
+
+    expect(h.sent).toHaveLength(1)
+    const [sentEmail] = h.sent
+    expect(sentEmail.kind).toBe('attempt')
+    expect(sentEmail.to).toBe('warn@example.com')
+    expect(sentEmail.code).toBeUndefined()
+
+    // The OTP was generated and stored (D17) but never handed to anyone.
+    const row = h.rows.get('warn@example.com')
+    expect(row?.otpHash).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('skips the send while inside the resend cooldown', async () => {
@@ -193,8 +218,10 @@ describe('SignupService.start', () => {
     await h.service.start('quota-taken@example.com')
 
     expect(h.rows.get('quota-taken@example.com')?.sendsInWindow).toBe(2)
-    // No e-mail ever leaves, at any of the three calls above.
-    expect(h.sent).toHaveLength(0)
+    // Both sends across the three calls above are the signup-attempt
+    // warning (D13), never the code (D17).
+    expect(h.sent).toHaveLength(2)
+    expect(h.sent.every((e) => e.kind === 'attempt' && e.code === undefined)).toBe(true)
   })
 
   it('stops sending once the daily send cap is reached (RN-8)', async () => {
@@ -243,7 +270,7 @@ describe('SignupService.start', () => {
 describe('SignupService.verify', () => {
   async function startAndCode(h: Harness, email: string): Promise<string> {
     await h.service.start(email)
-    return h.sent.filter((e) => e.to === email).at(-1)!.code
+    return h.sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)!.code!
   }
 
   it('returns a signup token when the code matches', async () => {
@@ -368,7 +395,7 @@ describe('SignupService.verify', () => {
 describe('SignupService.complete', () => {
   async function verified(h: Harness, email: string): Promise<string> {
     await h.service.start(email)
-    const code = h.sent.filter((e) => e.to === email).at(-1)!.code
+    const code = h.sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)!.code!
     const res = await h.service.verify({ email, code })
     return res.signupToken
   }

@@ -19,15 +19,11 @@ export async function createTestDb(): Promise<TestDb> {
   return { db: db as unknown as Database, close: () => client.close() }
 }
 
-/** Lets fire-and-forget work (e.g. the verification e-mail, D13) settle. */
-export function flushAsync(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve))
-}
-
 export interface SentEmail {
-  kind: 'verify' | 'reset'
+  kind: 'verify' | 'reset' | 'attempt'
   to: string
-  // verification e-mails carry an OTP `code`; password resets carry a `link`.
+  // verification e-mails carry an OTP `code`; password resets carry a `link`;
+  // signup-attempt warnings (D13) carry neither.
   code?: string
   link?: string
 }
@@ -41,6 +37,9 @@ export function createFakeEmail(): { service: EmailService; sent: SentEmail[] } 
     },
     async sendPasswordResetEmail(to, link): Promise<void> {
       sent.push({ kind: 'reset', to, link })
+    },
+    async sendSignupAttemptEmail(to): Promise<void> {
+      sent.push({ kind: 'attempt', to })
     },
   }
   return { service, sent }
@@ -57,7 +56,6 @@ export async function authenticate(
   password: string,
 ): Promise<string> {
   await app.inject({ method: 'POST', url: '/auth/signup/start', payload: { email } })
-  await flushAsync()
   const code = sent.filter((e) => e.kind === 'verify' && e.to === email).at(-1)?.code ?? ''
   const verify = await app.inject({
     method: 'POST',
