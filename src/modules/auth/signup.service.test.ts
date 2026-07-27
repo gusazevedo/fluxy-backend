@@ -174,6 +174,39 @@ describe('SignupService.start', () => {
     expect(h.rows.get('again@example.com')?.sendsInWindow).toBe(2)
   })
 
+  it('consumes the send quota and cooldown for a taken e-mail exactly like a free one (D17)', async () => {
+    // Needs a real (non-zero) cooldown, unlike vitest.config.ts's suite-wide
+    // override, to prove the row isn't renewed on the second call; see the
+    // comment on createHarness for why the re-import.
+    vi.stubEnv('VERIFY_OTP_RESEND_COOLDOWN_SECONDS', '60')
+    vi.resetModules()
+    const { createSignupService: freshFactory } = await import('./signup.service.js')
+    const h = createHarness(freshFactory)
+    h.knownUsers.add('quota-taken@example.com')
+
+    await h.service.start('quota-taken@example.com')
+    const rowAfterFirst = h.rows.get('quota-taken@example.com')!
+    // Quota must be consumed on the first send exactly like a free e-mail
+    // (`sendsInWindow: isAccount ? sends : sends + 1` would leave this at 0).
+    expect(rowAfterFirst.sendsInWindow).toBe(1)
+    const lastSentAtAfterFirst = rowAfterFirst.lastSentAt.getTime()
+
+    // Still inside the cooldown: the row must not be renewed, same as the
+    // free-e-mail path — otherwise the cooldown reopens the account oracle.
+    await h.service.start('quota-taken@example.com')
+    expect(h.rows.get('quota-taken@example.com')?.lastSentAt.getTime()).toBe(lastSentAtAfterFirst)
+    expect(h.rows.get('quota-taken@example.com')?.sendsInWindow).toBe(1)
+
+    // Cooldown has passed: mirrors 'sends again once the cooldown has
+    // passed, keeping the window counters', but for a taken e-mail.
+    h.rows.get('quota-taken@example.com')!.lastSentAt = new Date(Date.now() - 120_000)
+    await h.service.start('quota-taken@example.com')
+
+    expect(h.rows.get('quota-taken@example.com')?.sendsInWindow).toBe(2)
+    // No e-mail ever leaves, at any of the three calls above.
+    expect(h.sent).toHaveLength(0)
+  })
+
   it('stops sending once the daily send cap is reached (RN-8)', async () => {
     const h = createHarness()
     await h.service.start('capped@example.com')
