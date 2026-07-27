@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../app.js'
+import type { EmailService } from '../../email/resend.js'
 import type { Database } from '../../shared/database/client.js'
 import { users } from '../../shared/database/schema.js'
 import { hashPassword } from '../../shared/password.js'
@@ -26,7 +27,7 @@ describe('signup flow', () => {
     await close()
   })
 
-  async function lastCode(to: string): Promise<string> {
+  function lastCode(to: string): string {
     return sent.filter((e) => e.kind === 'verify' && e.to === to).at(-1)?.code ?? ''
   }
 
@@ -37,7 +38,7 @@ describe('signup flow', () => {
 
   it('starts a signup and e-mails a 6-digit code', async () => {
     expect(await start('ana@example.com')).toBe(202)
-    expect(await lastCode('ana@example.com')).toMatch(/^[0-9]{6}$/)
+    expect(lastCode('ana@example.com')).toMatch(/^[0-9]{6}$/)
   })
 
   it('rejects a wrong code with OTP_INVALID', async () => {
@@ -54,7 +55,7 @@ describe('signup flow', () => {
     const verify = await app.inject({
       method: 'POST',
       url: '/auth/signup/verify',
-      payload: { email: 'ana@example.com', code: await lastCode('ana@example.com') },
+      payload: { email: 'ana@example.com', code: lastCode('ana@example.com') },
     })
     expect(verify.statusCode).toBe(200)
     const { signupToken, expiresInSeconds } = verify.json()
@@ -136,7 +137,7 @@ describe('signup flow', () => {
     const verify = await app.inject({
       method: 'POST',
       url: '/auth/signup/verify',
-      payload: { email: 'bruno@example.com', code: await lastCode('bruno@example.com') },
+      payload: { email: 'bruno@example.com', code: lastCode('bruno@example.com') },
     })
 
     const res = await app.inject({
@@ -160,7 +161,7 @@ describe('signup flow', () => {
     const verify = await app.inject({
       method: 'POST',
       url: '/auth/signup/verify',
-      payload: { email, code: await lastCode(email) },
+      payload: { email, code: lastCode(email) },
     })
     expect(verify.statusCode).toBe(200)
     const { signupToken } = verify.json()
@@ -207,5 +208,55 @@ describe('signup flow', () => {
     })
     expect(badCode.statusCode).toBe(400)
     expect(badCode.json().error.code).toBe('VALIDATION_ERROR')
+  })
+})
+
+describe('signup flow - e-mail delivery failure (spec §5)', () => {
+  let app: FastifyInstance
+  let close: () => Promise<void>
+
+  beforeAll(async () => {
+    const testDb = await createTestDb()
+    close = testDb.close
+    // Fails on every send, carrying a message that must never reach the
+    // caller — if it did, the generic 500 would stop being generic.
+    const failingEmail: EmailService = {
+      sendVerificationEmail: async () => {
+        throw new Error('Resend rejected the request: invalid API key sk_live_secret')
+      },
+      sendPasswordResetEmail: async () => {
+        throw new Error('Resend rejected the request: invalid API key sk_live_secret')
+      },
+      sendSignupAttemptEmail: async () => {
+        throw new Error('Resend rejected the request: invalid API key sk_live_secret')
+      },
+    }
+    app = await buildApp({ logger: false, db: testDb.db, email: failingEmail })
+  })
+
+  afterAll(async () => {
+    await app.close()
+    await close()
+  })
+
+  it('propagates a send failure as a generic 500, not a silent 202', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/signup/start',
+      payload: { email: 'delivery-failure@example.com' },
+    })
+
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toEqual({
+      error: {
+        statusCode: 500,
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'An unexpected error occurred',
+      },
+    })
+
+    // The generic handler body must not leak which branch ran or why.
+    expect(JSON.stringify(res.json())).not.toContain('Resend')
+    expect(JSON.stringify(res.json())).not.toContain('sk_live_secret')
   })
 })

@@ -45,9 +45,10 @@ export const signupRoutes: FastifyPluginAsyncTypebox = async (app) => {
         tags: ['auth'],
         summary: 'Start a signup',
         description:
-          'Sends a 6-digit code to the address. Always answers the same way, whether the ' +
-          'e-mail is free, already an account, within the resend cooldown or over the daily ' +
-          'cap. Calling it again is how a code is resent.',
+          'Always sends exactly one e-mail: a 6-digit code when the address is free, or a ' +
+          'signup-attempt warning when it is already an account. Always answers the same way, ' +
+          'whether the e-mail is free, already an account, within the resend cooldown or over ' +
+          'the daily cap. Calling it again is how a code is resent.',
         body: SignupStartBody,
         response: { 202: MessageResponse },
       },
