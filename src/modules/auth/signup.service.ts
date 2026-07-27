@@ -2,7 +2,10 @@ import type { EmailService } from '../../email/resend.js'
 import { env } from '../../shared/config/env.js'
 import { generateOtp, generateToken, hashToken } from '../../shared/crypto.js'
 import { AppError } from '../../shared/errors.js'
+import { hashPassword } from '../../shared/password.js'
+import { DEFAULT_CATEGORIES } from '../categories/category.defaults.js'
 import type { AuthRepository } from './auth.repository.js'
+import type { TokenPair } from './auth.service.js'
 import type { SignupRepository } from './signup.repository.js'
 
 export interface SignupServiceDeps {
@@ -18,11 +21,20 @@ export interface SignupServiceDeps {
 export interface SignupService {
   start(email: string): Promise<{ message: string }>
   verify(input: { email: string; code: string }): Promise<SignupTokenDto>
+  complete(input: CompleteSignupInput): Promise<TokenPair>
 }
 
 export interface SignupTokenDto {
   signupToken: string
   expiresInSeconds: number
+}
+
+export interface CompleteSignupInput {
+  signupToken: string
+  firstName: string
+  lastName: string
+  password: string
+  passwordConfirmation: string
 }
 
 // Same response whether the e-mail is free, taken, throttled or capped, so the
@@ -124,6 +136,49 @@ export function createSignupService(deps: SignupServiceDeps): SignupService {
         minutesFromNow(env.SIGNUP_TOKEN_TTL_MINUTES, now),
       )
       return { signupToken: token, expiresInSeconds: env.SIGNUP_TOKEN_TTL_MINUTES * 60 }
+    },
+
+    async complete(input): Promise<TokenPair> {
+      if (input.password !== input.passwordConfirmation) {
+        throw new AppError(400, 'PASSWORD_MISMATCH', 'Password confirmation does not match')
+      }
+
+      const tokenHash = hashToken(input.signupToken)
+      const now = new Date()
+
+      // Pre-check only to tell EXPIRED from INVALID; the authoritative check is
+      // the conditional DELETE inside completeSignup.
+      const pending = await repo.findByTokenHash(tokenHash)
+      if (pending?.signupTokenExpiresAt && pending.signupTokenExpiresAt.getTime() < now.getTime()) {
+        throw new AppError(400, 'SIGNUP_TOKEN_EXPIRED', 'Signup token expired')
+      }
+
+      const userId = await repo.completeSignup({
+        signupTokenHash: tokenHash,
+        firstName: input.firstName.trim(),
+        lastName: input.lastName.trim(),
+        passwordHash: await hashPassword(input.password),
+        now,
+        categories: DEFAULT_CATEGORIES,
+      })
+      if (!userId) {
+        throw new AppError(400, 'SIGNUP_TOKEN_INVALID', 'Invalid signup token')
+      }
+
+      // The OTP already proved the address, so the account starts verified and
+      // signed in (D9).
+      const raw = generateToken()
+      await deps.createRefreshToken(
+        userId,
+        hashToken(raw),
+        new Date(now.getTime() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
+      )
+      return {
+        accessToken: deps.signAccessToken(userId),
+        refreshToken: raw,
+        tokenType: 'Bearer',
+        expiresIn: env.ACCESS_TOKEN_TTL,
+      }
     },
   }
 }

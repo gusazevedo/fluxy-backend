@@ -359,3 +359,75 @@ describe('SignupService.verify', () => {
     })
   })
 })
+
+describe('SignupService.complete', () => {
+  async function verified(h: Harness, email: string): Promise<string> {
+    await h.service.start(email)
+    const code = h.sent.filter((e) => e.to === email).at(-1)!.code
+    const res = await h.service.verify({ email, code })
+    return res.signupToken
+  }
+
+  const validInput = {
+    firstName: 'Ana',
+    lastName: 'Silva',
+    password: 'password123',
+    passwordConfirmation: 'password123',
+  }
+
+  it('creates the account and returns a token pair', async () => {
+    const h = createHarness()
+    const signupToken = await verified(h, 'done@example.com')
+
+    const pair = await h.service.complete({ signupToken, ...validInput })
+
+    expect(pair.accessToken).toBe('access-user-done@example.com')
+    expect(pair.refreshToken).toBeTypeOf('string')
+    expect(pair.tokenType).toBe('Bearer')
+    // The pending row is gone: the token cannot be replayed (CA-9).
+    expect(h.rows.has('done@example.com')).toBe(false)
+  })
+
+  it('rejects a mismatched confirmation before touching the database', async () => {
+    const h = createHarness()
+    const signupToken = await verified(h, 'mismatch@example.com')
+
+    await expect(
+      h.service.complete({
+        signupToken,
+        ...validInput,
+        passwordConfirmation: 'something-else',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'PASSWORD_MISMATCH' })
+    expect(h.rows.has('mismatch@example.com')).toBe(true)
+  })
+
+  it('rejects an unknown token with SIGNUP_TOKEN_INVALID', async () => {
+    const h = createHarness()
+
+    await expect(h.service.complete({ signupToken: 'nope', ...validInput })).rejects.toMatchObject({
+      code: 'SIGNUP_TOKEN_INVALID',
+    })
+  })
+
+  it('rejects an expired token with SIGNUP_TOKEN_EXPIRED', async () => {
+    const h = createHarness()
+    const signupToken = await verified(h, 'expired@example.com')
+    h.rows.get('expired@example.com')!.signupTokenExpiresAt = new Date(Date.now() - 1000)
+
+    await expect(h.service.complete({ signupToken, ...validInput })).rejects.toMatchObject({
+      code: 'SIGNUP_TOKEN_EXPIRED',
+    })
+  })
+
+  it('rejects a token that was invalidated by restarting the signup (CA-11)', async () => {
+    const h = createHarness()
+    const signupToken = await verified(h, 'restarted@example.com')
+    h.rows.get('restarted@example.com')!.lastSentAt = new Date(Date.now() - 120_000)
+    await h.service.start('restarted@example.com')
+
+    await expect(h.service.complete({ signupToken, ...validInput })).rejects.toMatchObject({
+      code: 'SIGNUP_TOKEN_INVALID',
+    })
+  })
+})
