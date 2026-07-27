@@ -198,6 +198,7 @@ describe('signup flow', () => {
       payload: { email: 'not-an-email' },
     })
     expect(badEmail.statusCode).toBe(400)
+    expect(badEmail.json().error.code).toBe('VALIDATION_ERROR')
 
     const badCode = await app.inject({
       method: 'POST',
@@ -205,5 +206,6 @@ describe('signup flow', () => {
       payload: { email: 'ana@example.com', code: '12' },
     })
     expect(badCode.statusCode).toBe(400)
+    expect(badCode.json().error.code).toBe('VALIDATION_ERROR')
   })
 })

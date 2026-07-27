@@ -349,6 +349,21 @@ describe('SignupService.verify', () => {
     })
   })
 
+  it('invalidates the previous code once the signup is restarted', async () => {
+    const h = createHarness()
+    const oldCode = await startAndCode(h, 'restart-otp@example.com')
+    // Escape the resend cooldown, like 'sends again once the cooldown has
+    // passed' above, so the second `start` actually issues a new code.
+    h.rows.get('restart-otp@example.com')!.lastSentAt = new Date(Date.now() - 120_000)
+
+    await h.service.start('restart-otp@example.com')
+
+    // The row now holds the new code's hash; the old one no longer matches.
+    await expect(
+      h.service.verify({ email: 'restart-otp@example.com', code: oldCode }),
+    ).rejects.toMatchObject({ code: 'OTP_INVALID' })
+  })
+
   it('refuses a second verify, so the first signup token stays valid (I1)', async () => {
     const h = createHarness()
     const code = await startAndCode(h, 'twice@example.com')
