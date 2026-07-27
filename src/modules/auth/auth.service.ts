@@ -1,16 +1,15 @@
 import type { EmailService } from '../../email/resend.js'
 import { env } from '../../shared/config/env.js'
-import { generateOtp, generateToken, hashToken } from '../../shared/crypto.js'
-import type { User } from '../../shared/database/schema.js'
+import { generateToken, hashToken } from '../../shared/crypto.js'
 import { AppError, unauthorized } from '../../shared/errors.js'
 import { hashPassword, verifyPassword } from '../../shared/password.js'
+import { normalizeEmail } from './auth.utils.js'
 import type { AuthRepository } from './auth.repository.js'
 
 export interface AuthServiceDeps {
   repo: AuthRepository
   email: EmailService
   signAccessToken: (userId: string) => string
-  seedDefaultCategories: (userId: string) => Promise<void>
 }
 
 export interface TokenPair {
@@ -34,9 +33,6 @@ export interface MeDto {
 }
 
 export interface AuthService {
-  register(input: { email: string; firstName: string; lastName: string; password: string }): Promise<AuthMessage>
-  verifyEmail(input: { email: string; code: string }): Promise<AuthMessage>
-  resendVerification(email: string): Promise<AuthMessage>
   login(input: { email: string; password: string }): Promise<TokenPair>
   refresh(refreshToken: string): Promise<TokenPair>
   logout(refreshToken: string): Promise<AuthMessage>
@@ -46,25 +42,14 @@ export interface AuthService {
   getMe(userId: string): Promise<MeDto>
 }
 
-// Generic responses so register / forgot-password don't reveal whether an
-// e-mail exists (RNF-3 of 0003).
-const GENERIC_REGISTER: AuthMessage = {
-  message: 'If the e-mail is valid, a verification code has been sent.',
-}
+// Generic response so forgot-password doesn't reveal whether an e-mail exists
+// (RNF-3 of 0003).
 const GENERIC_RESET: AuthMessage = {
   message: 'If the e-mail is valid, a password reset link has been sent.',
 }
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase()
-}
-
 function hoursFromNow(hours: number): Date {
   return new Date(Date.now() + hours * 60 * 60 * 1000)
-}
-
-function minutesFromNow(minutes: number): Date {
-  return new Date(Date.now() + minutes * 60 * 1000)
 }
 
 function daysFromNow(days: number): Date {
@@ -72,15 +57,7 @@ function daysFromNow(days: number): Date {
 }
 
 export function createAuthService(deps: AuthServiceDeps): AuthService {
-  const { repo, email, signAccessToken, seedDefaultCategories } = deps
-
-  async function sendVerification(user: User): Promise<void> {
-    const code = generateOtp()
-    // Only one verification code is active at a time; supersede any previous one.
-    await repo.invalidateActiveAuthTokens(user.id, 'email_verify')
-    await repo.createAuthToken(user.id, hashToken(code), 'email_verify', minutesFromNow(env.VERIFY_OTP_TTL_MINUTES))
-    await email.sendVerificationEmail(user.email, code)
-  }
+  const { repo, email, signAccessToken } = deps
 
   async function issueTokens(userId: string): Promise<TokenPair> {
     const raw = generateToken()
@@ -94,57 +71,6 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
   }
 
   return {
-    async register(input): Promise<AuthMessage> {
-      const emailAddr = normalizeEmail(input.email)
-      const existing = await repo.findUserByEmail(emailAddr)
-      if (!existing) {
-        const passwordHash = await hashPassword(input.password)
-        const user = await repo.createUser(emailAddr, input.firstName.trim(), input.lastName.trim(), passwordHash)
-        await seedDefaultCategories(user.id)
-        await sendVerification(user)
-      }
-      return GENERIC_REGISTER
-    },
-
-    async verifyEmail({ email: emailInput, code }): Promise<AuthMessage> {
-      // Same generic error for unknown user, wrong code or locked code, so the
-      // endpoint never reveals whether an e-mail exists (RNF-3 of 0003).
-      const invalid = new AppError(400, 'OTP_INVALID', 'Invalid verification code')
-      const user = await repo.findUserByEmail(normalizeEmail(emailInput))
-      if (!user) throw invalid
-      const record = await repo.findActiveAuthTokenByUser(user.id, 'email_verify')
-      if (!record) throw invalid
-      if (record.expiresAt.getTime() < Date.now()) {
-        throw new AppError(400, 'OTP_EXPIRED', 'Verification code expired')
-      }
-      if (record.attempts >= env.VERIFY_OTP_MAX_ATTEMPTS) {
-        await repo.markAuthTokenUsed(record.id)
-        throw invalid
-      }
-      if (record.tokenHash !== hashToken(code)) {
-        await repo.incrementAuthTokenAttempts(record.id)
-        throw invalid
-      }
-      await repo.setEmailVerified(record.userId)
-      await repo.markAuthTokenUsed(record.id)
-      return { message: 'E-mail verified. You can now sign in.' }
-    },
-
-    async resendVerification(emailInput): Promise<AuthMessage> {
-      const user = await repo.findUserByEmail(normalizeEmail(emailInput))
-      if (user && !user.emailVerified) {
-        // Throttle resends without leaking existence: within the cooldown we
-        // simply skip sending and return the same generic message.
-        const latest = await repo.findLatestAuthToken(user.id, 'email_verify')
-        const cooldownMs = env.VERIFY_OTP_RESEND_COOLDOWN_SECONDS * 1000
-        const withinCooldown = latest && Date.now() - latest.createdAt.getTime() < cooldownMs
-        if (!withinCooldown) {
-          await sendVerification(user)
-        }
-      }
-      return GENERIC_REGISTER
-    },
-
     async login(input): Promise<TokenPair> {
       const user = await repo.findUserByEmail(normalizeEmail(input.email))
       const invalid = new AppError(401, 'INVALID_CREDENTIALS', 'Invalid e-mail or password')

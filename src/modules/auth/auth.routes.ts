@@ -2,8 +2,6 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import { env } from '../../shared/config/env.js'
 import { createAuthRepository } from './auth.repository.js'
 import { createAuthService } from './auth.service.js'
-import { seedDefaultCategories } from '../categories/category.defaults.js'
-import { createCategoryRepository } from '../categories/category.repository.js'
 import {
   ChangePasswordBody,
   ForgotPasswordBody,
@@ -12,65 +10,16 @@ import {
   MeResponse,
   MessageResponse,
   RefreshBody,
-  RegisterBody,
-  ResendVerificationBody,
   ResetPasswordBody,
   TokenPairResponse,
-  VerifyEmailBody,
 } from './auth.schema.js'
 
 export const authRoutes: FastifyPluginAsyncTypebox = async (app) => {
-  const categoryRepo = createCategoryRepository(app.db)
   const service = createAuthService({
     repo: createAuthRepository(app.db),
     email: app.email,
     signAccessToken: (userId) => app.jwt.sign({ sub: userId }, { expiresIn: env.ACCESS_TOKEN_TTL }),
-    seedDefaultCategories: (userId) => seedDefaultCategories(categoryRepo, userId),
   })
-
-  app.post(
-    '/auth/register',
-    { schema: { tags: ['auth'], summary: 'Create an account', body: RegisterBody, response: { 201: MessageResponse } } },
-    async (request, reply) => {
-      const result = await service.register(request.body)
-      reply.code(201)
-      return result
-    },
-  )
-
-  app.post(
-    '/auth/verify-email',
-    {
-      schema: {
-        tags: ['auth'],
-        summary: 'Confirm e-mail with OTP code',
-        description:
-          'Confirms an account e-mail with the 6-digit code sent on registration. The code ' +
-          'expires after a few minutes and is locked after too many failed attempts. The ' +
-          'response is generic and never reveals whether the e-mail exists.',
-        body: VerifyEmailBody,
-        response: { 200: MessageResponse },
-      },
-    },
-    (request) => service.verifyEmail(request.body),
-  )
-
-  app.post(
-    '/auth/verify-email/resend',
-    {
-      schema: {
-        tags: ['auth'],
-        summary: 'Resend verification code',
-        description:
-          'Sends a new 6-digit verification code, superseding the previous one. Subject to a ' +
-          'cooldown between sends. Always responds generically, without revealing whether the ' +
-          'e-mail exists or is already verified.',
-        body: ResendVerificationBody,
-        response: { 200: MessageResponse },
-      },
-    },
-    (request) => service.resendVerification(request.body.email),
-  )
 
   app.post(
     '/auth/login',

@@ -1,15 +1,7 @@
 import { Type } from '@fastify/type-provider-typebox'
-import { Email, Name, OtpCode, Password, TokenString } from './field.schema.js'
+import { Email, Password, TokenString } from './field.schema.js'
 
-export const RegisterBody = Type.Object({
-  email: Email,
-  firstName: Name,
-  lastName: Name,
-  password: Password,
-})
 export const LoginBody = Type.Object({ email: Email, password: Password })
-export const VerifyEmailBody = Type.Object({ email: Email, code: OtpCode })
-export const ResendVerificationBody = Type.Object({ email: Email })
 export const RefreshBody = Type.Object({ refreshToken: TokenString })
 export const LogoutBody = Type.Object({ refreshToken: TokenString })
 export const ForgotPasswordBody = Type.Object({ email: Email })

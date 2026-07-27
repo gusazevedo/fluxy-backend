@@ -6,6 +6,7 @@ import { hashPassword } from '../../shared/password.js'
 import { DEFAULT_CATEGORIES } from '../categories/category.defaults.js'
 import type { AuthRepository } from './auth.repository.js'
 import type { TokenPair } from './auth.service.js'
+import { minutesFromNow, normalizeEmail } from './auth.utils.js'
 import type { SignupRepository } from './signup.repository.js'
 
 export interface SignupServiceDeps {
@@ -44,14 +45,6 @@ const GENERIC_START = {
 }
 
 const WINDOW_MS = 24 * 60 * 60 * 1000
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase()
-}
-
-function minutesFromNow(minutes: number, from: Date): Date {
-  return new Date(from.getTime() + minutes * 60 * 1000)
-}
 
 export function createSignupService(deps: SignupServiceDeps): SignupService {
   const { repo, users, email, dispatch } = deps

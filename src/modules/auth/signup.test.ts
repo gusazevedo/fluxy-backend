@@ -166,8 +166,8 @@ describe('signup flow', () => {
     const { signupToken } = verify.json()
 
     // The address becomes an account behind this signup's back, between
-    // verify and complete (RN-6). Inserted straight into the test DB, not
-    // through POST /auth/register — that endpoint is going away next.
+    // verify and complete (RN-6). Inserted straight into the test DB — the
+    // old register endpoint that used to do this no longer exists.
     await db.insert(users).values({
       email,
       firstName: 'Carla',
