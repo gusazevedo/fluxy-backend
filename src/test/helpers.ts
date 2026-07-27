@@ -19,6 +19,11 @@ export async function createTestDb(): Promise<TestDb> {
   return { db: db as unknown as Database, close: () => client.close() }
 }
 
+/** Lets fire-and-forget work (e.g. the verification e-mail, D13) settle. */
+export function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 export interface SentEmail {
   kind: 'verify' | 'reset'
   to: string

@@ -1,14 +1,5 @@
 import { Type } from '@fastify/type-provider-typebox'
-
-// Pragmatic e-mail pattern (real validation happens by sending the message).
-const Email = Type.String({
-  pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$',
-  maxLength: 320,
-})
-const Password = Type.String({ minLength: 8, maxLength: 200 })
-const TokenString = Type.String({ minLength: 1 })
-const OtpCode = Type.String({ pattern: '^[0-9]{6}$' })
-const Name = Type.String({ minLength: 1, maxLength: 100 })
+import { Email, Name, OtpCode, Password, TokenString } from './field.schema.js'
 
 export const RegisterBody = Type.Object({
   email: Email,
