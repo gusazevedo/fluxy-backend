@@ -211,11 +211,11 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 1. **Cadastro (3 etapas, e-mail primeiro):**
    1. `signup/start` recebe `{ email }` e **sempre** cria/atualiza a linha em
       `signup_verifications` com um **código OTP de 6 dígitos** — inclusive quando o e-mail já
-      pertence a um usuário (D17). O que muda nesse caso é apenas que **o e-mail não é enviado**:
-      o código existe no banco, mas ninguém o recebe, então é inadivinhável. A resposta é
-      **sempre** a mesma (RNF-3) e é devolvida
-      **antes** do envio ser concluído (D13), de modo que os dois caminhos levem o mesmo tempo;
-      falha de envio vira log, não erro de resposta. Chamar de novo com o mesmo e-mail é o
+      pertence a um usuário (D17). O que muda nesse caso é **qual e-mail sai**: em vez do código,
+      o endereço recebe um **aviso de tentativa de cadastro** (D13), orientando a entrar ou
+      recuperar a senha. O código fica gravado mas não é enviado a ninguém, logo é inadivinhável.
+      Os dois caminhos fazem o mesmo trabalho — mesmas consultas, um envio cada —, então custam o
+      mesmo tempo, e a resposta é **sempre** a mesma (RNF-3). Chamar de novo com o mesmo e-mail é o
       **reenvio**: gera um código novo invalidando o anterior, respeitando o cooldown e os tetos
       da janela (RN-8); bloqueado por qualquer um deles, nada é enviado e a resposta não muda.
    2. `signup/verify` recebe `{ email, code }`. Código errado incrementa `attempts` e
@@ -272,7 +272,8 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   o valor cru só trafega uma vez.
 - **RNF-3** `forgot-password`, `signup/start` e `signup/verify` **não revelam** se um e-mail já é
   **conta**: resposta genérica, mesmo status e — em `signup/start` — mesmo tempo de resposta, já
-  que o envio sai do caminho da resposta (D13). A distinção entre `OTP_INVALID` e `OTP_EXPIRED`
+  que os dois caminhos fazem trabalho equivalente e enviam um e-mail cada (D13). A distinção entre
+  `OTP_INVALID` e `OTP_EXPIRED`
   em `signup/verify` **não** revela existência de conta, porque `signup/start` cria a linha
   pendente para qualquer e-mail (D17) — os dois casos são indistinguíveis pelo `verify`.
 - **RNF-4** Endpoints de `login`, `signup/start`, `signup/verify`, `forgot-password` e
@@ -314,7 +315,8 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 - **CA-1** Não é possível cadastrar dois usuários com o mesmo e-mail (case-insensitive).
 - **CA-2** `signup/start` dispara um e-mail com código OTP de 6 dígitos e responde igual para
   e-mail livre e e-mail já cadastrado; no segundo caso, nenhum e-mail é enviado, mas a linha
-  pendente é criada do mesmo jeito (D17).
+  pendente é criada do mesmo jeito (D17) e um e-mail sai nos dois casos — o código para o endereço
+  livre, o aviso de tentativa de cadastro para o que já é conta (D13).
 - **CA-3** Login com credenciais corretas retorna access + refresh; com incorretas, `INVALID_CREDENTIALS`.
 - **CA-4** Um access token expirado é rejeitado; o refresh gera um novo par e **invalida** o refresh anterior.
 - **CA-5** `forgot-password` responde igual para e-mail existente e inexistente.
@@ -387,10 +389,24 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 
 ### Decisões da revisão da v2.0 (2026-07-26)
 
-- **D13 — Envio fora do caminho da resposta:** `signup/start` responde 202 antes de o e-mail sair.
-  Com o envio síncrono, o caminho "e-mail livre" (INSERT + chamada ao Resend) levaria centenas de
-  ms a mais que o caminho "e-mail já cadastrado" (um SELECT), tornando a enumeração trivial por
-  cronômetro e esvaziando a RNF-3.
+- **D13 — Paridade por trabalho equivalente, não por envio assíncrono:** `signup/start` **sempre**
+  envia exatamente um e-mail e o aguarda. Para endereço livre, o código OTP; para endereço que já
+  é conta, um **aviso de tentativa de cadastro** ("alguém tentou criar uma conta com este e-mail;
+  se foi você, entre ou recupere a senha"). Assim os dois caminhos fazem o mesmo número de
+  consultas e a mesma chamada de rede, e o tempo de resposta não distingue um do outro.
+
+  A versão anterior desta decisão tirava o envio do caminho da resposta com `setImmediate`. Isso
+  funcionava nos testes, mas **não no runtime alvo**: `src/lambda.ts` não define
+  `callbackWaitsForEmptyEventLoop`, então vale o default `true` da AWS e o Lambda só devolve a
+  resposta quando o event loop esvazia — o envio agendado bloqueava a resposta do mesmo jeito,
+  enquanto o caminho "já é conta", que não agendava nada, respondia na hora. A garantia de tempo
+  ficava valendo só em teste. Definir a flag como `false` devolveria a resposta na hora mas
+  congelaria o container no meio do envio, trocando o vazamento por entrega não confiável; uma
+  fila (SQS/EventBridge) resolveria de verdade, mas é infra nova e revisão da 0002.
+
+  Efeito colateral aceito: o endereço de um usuário existente pode receber esse aviso sem que ele
+  tenha pedido nada. É informação útil de segurança, e a RN-8 limita a no máximo
+  `SIGNUP_MAX_SENDS_PER_DAY` avisos por endereço por dia.
 - **D14 — `signup/complete` atômico via CTE:** consumo do token, criação do usuário e semeadura
   das categorias num **único comando SQL** (`WITH consumed AS (DELETE ... RETURNING) ...`). Evita
   conta sem categorias em falha parcial e transforma a corrida de duplo `complete` em erro
