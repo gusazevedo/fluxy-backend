@@ -1566,19 +1566,35 @@ Expected: FAIL — as rotas `/auth/signup/*` devolvem 404.
 
 - [ ] **Step 3: Escrever os schemas**
 
-Criar `src/modules/auth/signup.schema.ts`:
+Primeiro criar `src/modules/auth/field.schema.ts`, movendo as definições de campo que hoje moram no topo de `auth.schema.ts`, para que os dois módulos compartilhem uma definição só (decisão da varredura pré-execução — sem isso, `Email` e `Password` ficariam duplicados entre os dois arquivos e a política de senha poderia divergir):
 
 ```ts
 import { Type } from '@fastify/type-provider-typebox'
 
-// Same pragmatic pattern as auth.schema.ts; real validation is the e-mail itself.
-const Email = Type.String({
+/** Field schemas shared by the session and signup modules. */
+
+// Pragmatic e-mail pattern (real validation happens by sending the message).
+export const Email = Type.String({
   pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$',
   maxLength: 320,
 })
-const Password = Type.String({ minLength: 8, maxLength: 200 })
-const OtpCode = Type.String({ pattern: '^[0-9]{6}$' })
-const Name = Type.String({ minLength: 1, maxLength: 100 })
+export const Password = Type.String({ minLength: 8, maxLength: 200 })
+export const TokenString = Type.String({ minLength: 1 })
+export const OtpCode = Type.String({ pattern: '^[0-9]{6}$' })
+export const Name = Type.String({ minLength: 1, maxLength: 100 })
+```
+
+Em `src/modules/auth/auth.schema.ts`, apagar as constantes locais `Email`, `Password`, `TokenString`, `OtpCode` e `Name` e importar as que ainda usa:
+
+```ts
+import { Email, Password, TokenString } from './field.schema.js'
+```
+
+Depois criar `src/modules/auth/signup.schema.ts`:
+
+```ts
+import { Type } from '@fastify/type-provider-typebox'
+import { Email, Name, OtpCode, Password } from './field.schema.js'
 
 export const SignupStartBody = Type.Object({ email: Email })
 export const SignupVerifyBody = Type.Object({ email: Email, code: OtpCode })
@@ -1816,7 +1832,7 @@ Em `src/modules/auth/auth.repository.ts`, apagar da interface e da implementaç�
 
 - [ ] **Step 6: Remover os schemas antigos**
 
-Em `src/modules/auth/auth.schema.ts`, apagar `RegisterBody`, `VerifyEmailBody` e `ResendVerificationBody`. Apagar também `OtpCode` e `Name`, que ficam sem uso — os equivalentes vivem em `signup.schema.ts`.
+Em `src/modules/auth/auth.schema.ts`, apagar `RegisterBody`, `VerifyEmailBody` e `ResendVerificationBody`. As definições de campo já vivem em `field.schema.ts` desde a Task 6; ajustar o import para trazer só o que continua em uso (`Email`, `Password`, `TokenString`).
 
 - [ ] **Step 7: Atualizar os testes de auth**
 
