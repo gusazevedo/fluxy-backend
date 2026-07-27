@@ -314,10 +314,10 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 ## 11. Critérios de Aceitação
 
 - **CA-1** Não é possível cadastrar dois usuários com o mesmo e-mail (case-insensitive).
-- **CA-2** `signup/start` dispara um e-mail com código OTP de 6 dígitos e responde igual para
-  e-mail livre e e-mail já cadastrado; no segundo caso, nenhum e-mail é enviado, mas a linha
-  pendente é criada do mesmo jeito (D17) e um e-mail sai nos dois casos — o código para o endereço
-  livre, o aviso de tentativa de cadastro para o que já é conta (D13).
+- **CA-2** `signup/start` responde igual para e-mail livre e e-mail já cadastrado, e cria a linha
+  pendente nos dois casos (D17). Um e-mail sai nos dois casos, mudando só o conteúdo (D13): o
+  código OTP de 6 dígitos para o endereço livre, o aviso de tentativa de cadastro — **sem código**
+  — para o que já é conta.
 - **CA-3** Login com credenciais corretas retorna access + refresh; com incorretas, `INVALID_CREDENTIALS`.
 - **CA-4** Um access token expirado é rejeitado; o refresh gera um novo par e **invalida** o refresh anterior.
 - **CA-5** `forgot-password` responde igual para e-mail existente e inexistente.
@@ -410,8 +410,22 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
   `SIGNUP_MAX_SENDS_PER_DAY` avisos por endereço por dia.
 
   Falha no envio **propaga** (500), em vez de virar um 202 silencioso. Não é canal de vazamento:
-  os dois caminhos fazem a mesma chamada ao Resend, então a chance de falha é a mesma e o erro não
-  denuncia qual ramo rodou. Engolir a falha devolveria um 202 mentindo que o código foi enviado.
+  nenhuma entrada controlável por quem chama difere entre os ramos — mesma chave, mesmo
+  destinatário, mesmo transporte —, e as duas coisas que diferem são o assunto e o corpo, strings
+  estáticas sem interpolação. Logo não há como induzir falha num ramo e não no outro, nem pelo
+  tempo até a falha, que vem depois de trabalho idêntico. Engolir a falha devolveria um 202
+  mentindo que o código foi enviado.
+
+  Isso pressupõe que **os dois templates permaneçam entregáveis**. Se um deles passasse a ser
+  rejeitado de forma determinística (reprovação de conteúdo, spam scoring), o 500 viraria um
+  oráculo de conta perfeito: todo endereço com conta erraria e todo endereço livre responderia
+  202. Ambos são estáticos, então uma reprovação apareceria já no primeiro envio; ainda assim, a
+  taxa de erro por template merece monitoramento.
+
+  Consequência registrada: o 500 acontece **depois** de a linha ter sido gravada, então a
+  tentativa fracassada já consumiu cota da RN-8, já iniciou o cooldown e já invalidou o código
+  anterior. Quem repetir a chamada na sequência recebe 202 sem que e-mail algum saia, até o
+  cooldown vencer.
 - **D14 — `signup/complete` atômico via CTE:** consumo do token, criação do usuário e semeadura
   das categorias num **único comando SQL** (`WITH consumed AS (DELETE ... RETURNING) ...`). Evita
   conta sem categorias em falha parcial e transforma a corrida de duplo `complete` em erro
@@ -426,7 +440,8 @@ Senha fora da política é rejeitada pelo schema TypeBox antes do handler (400 d
 - **D16 — Tetos por e-mail (RN-8):** contadores de janela de 24h que o reinício do cadastro não
   zera, respondendo à força bruta viabilizada por D11 e ao mail-bombing.
 - **D17 — `signup/start` cria a linha pendente para qualquer e-mail:** inclusive para endereços que
-  já são conta; o que muda nesses casos é só o envio, que não acontece. Motivo: com a linha sendo
+  já são conta; o que muda nesses casos é só o **conteúdo** do e-mail que sai (D13). Motivo: com a
+  linha sendo
   criada apenas para e-mails livres, a D15 virava um **oráculo de conta**. Bastava chamar
   `signup/start(X)`, esperar o OTP expirar e chamar `signup/verify(X, "000000")` — `OTP_EXPIRED`
   provava que existia linha pendente, logo que X **não** era conta, e `OTP_INVALID` provava o
