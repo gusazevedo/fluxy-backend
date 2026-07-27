@@ -43,6 +43,13 @@
       "when": 1783023397387,
       "tag": "0005_add_transaction_name",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785116110294,
+      "tag": "0006_signup_verifications",
+      "breakpoints": true
     }
   ]
 }
