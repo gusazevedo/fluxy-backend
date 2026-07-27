@@ -1841,6 +1841,33 @@ Em `src/modules/auth/auth.test.ts`:
 - Apagar os testes `'registers and sends a verification e-mail'`, `'blocks login before e-mail verification'` e `'verifies the e-mail and then logs in, returning a token pair'` — o fluxo que eles cobriam agora é de `signup.test.ts`, e `login` já é coberto lá.
 - Manter e ajustar todo o resto (refresh, logout, forgot/reset/change-password, `/me`) para criar o usuário via `authenticate`.
 
+- [ ] **Step 7b: Consolidar os helpers duplicados**
+
+A revisão da Task 3 apontou que `normalizeEmail` e `minutesFromNow` ficaram byte a byte iguais em `auth.service.ts` e `signup.service.ts`. Enquanto o fluxo antigo existia valia esperar; agora que ele saiu, consolidar.
+
+Criar `src/modules/auth/time.ts` e `src/modules/auth/email-address.ts` seria fragmentar demais para duas funções — em vez disso, mover as duas para `src/shared/` junto das utilidades que já vivem lá:
+
+Em `src/shared/crypto.ts` **não** — não é criptografia. Criar `src/modules/auth/auth.utils.ts`:
+
+```ts
+/** Canonical form of an e-mail address: trimmed and lowercased (RN-1). */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+/** `minutes` from `from`, defaulting to now. */
+export function minutesFromNow(minutes: number, from: Date = new Date()): Date {
+  return new Date(from.getTime() + minutes * 60 * 1000)
+}
+```
+
+Importar nos dois serviços e apagar as cópias locais. `hoursFromNow` e `daysFromNow` de `auth.service.ts` continuam lá — só são usadas por ele.
+
+Por que importa: se `normalizeEmail` divergir entre os dois arquivos, o mesmo endereço passa a ser tratado como dois no cadastro e no login.
+
+Run: `npx vitest run src/modules/auth/`
+Expected: PASS.
+
 - [ ] **Step 8: Rodar a suíte inteira**
 
 Run: `npm test`
