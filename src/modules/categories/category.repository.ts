@@ -14,7 +14,6 @@ export interface ListCategoriesFilter {
 
 export interface CategoryRepository {
   create(userId: string, name: string, kind: TransactionKind): Promise<Category>
-  insertMany(userId: string, items: NewCategoryInput[]): Promise<void>
   findById(userId: string, id: string): Promise<Category | undefined>
   findActiveByName(userId: string, kind: TransactionKind, name: string): Promise<Category | undefined>
   list(userId: string, filter: ListCategoriesFilter): Promise<Category[]>
@@ -28,10 +27,6 @@ export function createCategoryRepository(db: Database): CategoryRepository {
     async create(userId, name, kind): Promise<Category> {
       const rows = await db.insert(categories).values({ userId, name, kind }).returning()
       return rows[0]
-    },
-    async insertMany(userId, items): Promise<void> {
-      if (items.length === 0) return
-      await db.insert(categories).values(items.map((i) => ({ userId, name: i.name, kind: i.kind })))
     },
     async findById(userId, id): Promise<Category | undefined> {
       const rows = await db

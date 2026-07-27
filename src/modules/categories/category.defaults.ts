@@ -1,5 +1,5 @@
 import type { TransactionKind } from '../../shared/database/schema.js'
-import type { CategoryRepository, NewCategoryInput } from './category.repository.js'
+import type { NewCategoryInput } from './category.repository.js'
 
 /** Default categories seeded for every new user at registration (0004 §5). */
 export const DEFAULT_CATEGORIES: NewCategoryInput[] = [
@@ -16,7 +16,3 @@ export const DEFAULT_CATEGORIES: NewCategoryInput[] = [
   { name: 'Investimentos', kind: 'income' },
   { name: 'Outros', kind: 'income' },
 ] satisfies { name: string; kind: TransactionKind }[]
-
-export function seedDefaultCategories(repo: CategoryRepository, userId: string): Promise<void> {
-  return repo.insertMany(userId, DEFAULT_CATEGORIES)
-}

@@ -33,7 +33,6 @@ function unimplementedRepo(): AuthRepository {
   return {
     findUserByEmail: fail('findUserByEmail') as AuthRepository['findUserByEmail'],
     findUserById: fail('findUserById') as AuthRepository['findUserById'],
-    createUser: fail('createUser') as AuthRepository['createUser'],
     updatePassword: fail('updatePassword') as AuthRepository['updatePassword'],
     createAuthToken: fail('createAuthToken') as AuthRepository['createAuthToken'],
     findActiveAuthToken: fail('findActiveAuthToken') as AuthRepository['findActiveAuthToken'],

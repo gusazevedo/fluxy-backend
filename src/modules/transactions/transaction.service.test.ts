@@ -48,7 +48,6 @@ function makeTxRepo(over: Partial<TransactionRepository> = {}): TransactionRepos
 function makeCatRepo(over: Partial<CategoryRepository> = {}): CategoryRepository {
   return {
     create: vi.fn(),
-    insertMany: vi.fn(),
     findById: vi.fn(),
     findActiveByName: vi.fn(),
     list: vi.fn(),
