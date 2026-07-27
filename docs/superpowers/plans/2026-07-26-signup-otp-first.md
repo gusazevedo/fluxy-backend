@@ -1870,6 +1870,15 @@ git commit -m "refactor(auth): remove os endpoints de cadastro do fluxo antigo"
 - Modify: `specs/README.md` (índice)
 - Modify: `specs/0003-autenticacao-e-contas.md` (status)
 
+- [ ] **Step 0: Remover o override global de cooldown nos testes**
+
+`vitest.config.ts` fixa `VERIFY_OTP_RESEND_COOLDOWN_SECONDS: '0'` para a suíte inteira. Esse override existia para o `verify-email/resend` antigo, removido na Task 7 — e ele obrigou o teste de cooldown do `start` (Task 3) a reimportar o serviço com `vi.stubEnv` + `vi.resetModules()`, já que com cooldown zero o comportamento é intestável.
+
+Com o endpoint antigo fora, apagar o bloco `env` de `vitest.config.ts` (o arquivo fica só com `defineConfig({ test: {} })`, ou pode ser reduzido ao mínimo) e simplificar o teste `'skips the send while inside the resend cooldown'` em `src/modules/auth/signup.service.test.ts` para usar o harness normal, sem `stubEnv`, `resetModules` nem `import()` dinâmico.
+
+Run: `npm test`
+Expected: tudo passa. Se algum teste de integração quebrar por pedir dois códigos para o **mesmo** e-mail dentro de 60s, o certo é o teste usar e-mails distintos — não reintroduzir o override global.
+
 - [ ] **Step 1: Conferir a documentação de endpoints**
 
 Run: `grep -rn "auth/register\|verify-email" README.md DEPLOY.md`
