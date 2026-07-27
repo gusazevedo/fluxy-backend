@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createTestDb, type TestDb } from '../../test/helpers.js'
-import { categories, signupVerifications, users } from '../../shared/database/schema.js'
+import {
+  categories,
+  signupVerifications,
+  users,
+  type TransactionKind,
+} from '../../shared/database/schema.js'
 import { createSignupRepository, type SignupRepository } from './signup.repository.js'
 import { DEFAULT_CATEGORIES } from '../categories/category.defaults.js'
 
@@ -225,5 +230,55 @@ describe('SignupRepository', () => {
     expect(userId).toBeUndefined()
     // The row must survive: the guard rejects the unverified row without deleting it.
     expect(await repo.findByTokenHash('unverified-token-hash')).toBeDefined()
+  })
+
+  it('completeSignup rolls back the whole CTE when category seeding fails (CA-14, D14)', async () => {
+    // D14: atomicity comes from a single SQL statement with CTEs, not a driver
+    // transaction (the Neon HTTP driver has none). This is the one test that
+    // actually exercises that: the CTE must start — the token check passes —
+    // and then blow up mid-way, at the `::transaction_kind` cast in the seed
+    // step, proving that a failure there rolls back the delete + insert too.
+    await startAndVerify('atomic@example.com', 'atomic-token-hash')
+
+    await expect(
+      repo.completeSignup({
+        signupTokenHash: 'atomic-token-hash',
+        firstName: 'Ana',
+        lastName: 'Silva',
+        passwordHash: 'argon-hash',
+        now: new Date(),
+        // Narrowest possible cast: this value is deliberately invalid so it
+        // fails the `::transaction_kind` cast in the seed step. It cannot be
+        // a real `TransactionKind`, that's the whole point of the test.
+        categories: [{ name: 'Invalid', kind: 'nao-existe' as TransactionKind }],
+      }),
+    ).rejects.toThrow()
+
+    // Nothing was written: no user for that e-mail...
+    const orphanUsers = await testDb.db
+      .select()
+      .from(users)
+      .where(eq(users.email, 'atomic@example.com'))
+    expect(orphanUsers).toHaveLength(0)
+    // ...and the signup row survived, so the token is still valid for a retry.
+    const pending = await repo.findByTokenHash('atomic-token-hash')
+    expect(pending).toBeDefined()
+
+    // Retrying with valid categories now completes normally (CA-14: "signup
+    // token continua válido para nova tentativa").
+    const userId = await repo.completeSignup({
+      signupTokenHash: 'atomic-token-hash',
+      firstName: 'Ana',
+      lastName: 'Silva',
+      passwordHash: 'argon-hash',
+      now: new Date(),
+      categories: DEFAULT_CATEGORIES,
+    })
+
+    expect(userId).toBeTypeOf('string')
+    const user = await testDb.db.select().from(users).where(eq(users.id, userId!))
+    expect(user[0].email).toBe('atomic@example.com')
+    const seeded = await testDb.db.select().from(categories).where(eq(categories.userId, userId!))
+    expect(seeded).toHaveLength(DEFAULT_CATEGORIES.length)
   })
 })
