@@ -39,10 +39,21 @@ export interface SignupRepository {
  * `db.execute` returns the raw driver result, whose shape differs per driver:
  * postgres.js yields an array, neon-http and pglite yield `{ rows }`. Normalize
  * so the repository behaves the same in tests, local dev and deployed stages.
+ *
+ * An unrecognized shape must throw instead of falling back to `[]`: by the time
+ * `completeSignup` calls this, the CTE has already deleted the signup row and
+ * created the user, so silently returning "no rows" would make the caller
+ * report an invalid token for a signup that actually succeeded, with no way
+ * to retry (the token is gone). `[]` is reserved for the legitimate zero-row
+ * case (array or `{ rows }` that is genuinely empty).
  */
 function toRows<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[]
-  return ((result as { rows?: T[] }).rows ?? []) as T[]
+  if (result !== null && typeof result === 'object' && 'rows' in result) {
+    const rows = (result as { rows: unknown }).rows
+    if (Array.isArray(rows)) return rows as T[]
+  }
+  throw new Error('Unexpected db.execute() result shape: neither an array nor { rows: [] }')
 }
 
 export function createSignupRepository(db: Database): SignupRepository {

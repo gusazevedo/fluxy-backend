@@ -203,9 +203,18 @@ describe('SignupRepository', () => {
       failuresInWindow: 0,
       windowStartedAt: now,
     })
+    // Simulate a row that already carries a signup token but was never marked
+    // verified, i.e. `markVerified` was skipped. `verifiedAt` stays NULL so the
+    // guard in `completeSignup`'s CTE (`AND verified_at IS NOT NULL`) is the
+    // only thing standing between this row and completion.
+    const row = await repo.findByEmail('unverified@example.com')
+    await testDb.db
+      .update(signupVerifications)
+      .set({ signupTokenHash: 'unverified-token-hash', signupTokenExpiresAt: minutes(15) })
+      .where(eq(signupVerifications.id, row!.id))
 
     const userId = await repo.completeSignup({
-      signupTokenHash: 'otp-hash',
+      signupTokenHash: 'unverified-token-hash',
       firstName: 'Ana',
       lastName: 'Silva',
       passwordHash: 'argon-hash',
@@ -214,5 +223,7 @@ describe('SignupRepository', () => {
     })
 
     expect(userId).toBeUndefined()
+    // The row must survive: the guard rejects the unverified row without deleting it.
+    expect(await repo.findByTokenHash('unverified-token-hash')).toBeDefined()
   })
 })
