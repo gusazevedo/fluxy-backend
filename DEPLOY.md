@@ -49,17 +49,17 @@ No projeto, rode `npm install` uma vez (instala o esbuild usado no build).
 
 ---
 
-## 3. (E-mail) Resend — necessário para verificação de conta
+## 3. (E-mail) Resend — necessário para o cadastro
 
-O login exige e-mail verificado. Em produção, o link de verificação é enviado pelo **Resend**.
+O cadastro envia um código de 6 dígitos por e-mail. Em produção, quem envia é o **Resend**.
 
 1. Crie conta em **resend.com** (free tier) → **API Keys** → crie uma key (guarde).
 2. Para enviar a qualquer destinatário, **verifique um domínio** no Resend. Sem domínio, a key
    de teste só envia para o e-mail da sua própria conta Resend.
 
 > **Atalho sem Resend (só para testar):** sem a key o app **não envia** e-mail — ele **escreve o
-> link de verificação no CloudWatch Logs**. Aí você pega o token de lá e chama `/auth/verify-email`
-> na mão (ver passo 8, nota).
+> código de verificação no CloudWatch Logs**. Aí você pega o código de lá e chama
+> `/auth/signup/verify` na mão (ver passo 8, nota).
 
 ---
 
@@ -156,20 +156,25 @@ API="<ApiUrl>"
 curl $API/health                      # -> {"status":"ok",...}
 # abra no navegador: $API/docs         (Swagger UI)
 
-# fluxo completo:
-curl -X POST $API/auth/register -H 'content-type: application/json' \
-  -d '{"email":"voce@exemplo.com","password":"senha12345"}'
-# -> verifique o e-mail (link do Resend) OU veja o link no CloudWatch (nota abaixo)
-curl -X POST $API/auth/verify-email -H 'content-type: application/json' \
-  -d '{"token":"<token-do-link>"}'
+# fluxo completo (cadastro em três passos):
+curl -X POST $API/auth/signup/start -H 'content-type: application/json' \
+  -d '{"email":"voce@exemplo.com"}'
+# -> 202, mensagem genérica. O código de 6 dígitos chega por e-mail (ou veja o
+#    CloudWatch, nota abaixo)
+curl -X POST $API/auth/signup/verify -H 'content-type: application/json' \
+  -d '{"email":"voce@exemplo.com","code":"<codigo-de-6-digitos>"}'
+# -> 200 com { signupToken, expiresInSeconds }
+curl -X POST $API/auth/signup/complete -H 'content-type: application/json' \
+  -d '{"signupToken":"<signupToken-do-passo-anterior>","firstName":"Voce","lastName":"Sobrenome","password":"senha12345","passwordConfirmation":"senha12345"}'
+# -> 201, já logado: { accessToken, refreshToken, tokenType, expiresIn }
 curl -X POST $API/auth/login -H 'content-type: application/json' \
   -d '{"email":"voce@exemplo.com","password":"senha12345"}'
 # -> use o accessToken: Authorization: Bearer <token> em /categories, /transactions, /reports/summary
 ```
 
-> **Nota (sem Resend):** o link de verificação fica no CloudWatch.
+> **Nota (sem Resend):** o código de verificação fica no CloudWatch.
 > Console → **CloudWatch** → **Log groups** → `/aws/lambda/fluxy-dev-*` → procure
-> `verification link for ...`. Copie o `token=` da URL e use no `/auth/verify-email`.
+> `verification code for ...`. Copie o código e use no `/auth/signup/verify`.
 
 ---
 

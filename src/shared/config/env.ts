@@ -35,6 +35,11 @@ const EnvSchema = Type.Object({
   VERIFY_OTP_TTL_MINUTES: Type.Number({ default: 5 }),
   VERIFY_OTP_MAX_ATTEMPTS: Type.Number({ default: 5 }),
   VERIFY_OTP_RESEND_COOLDOWN_SECONDS: Type.Number({ default: 60 }),
+  // Signup token issued by /auth/signup/verify (0003 §6).
+  SIGNUP_TOKEN_TTL_MINUTES: Type.Number({ default: 15 }),
+  // Per-email caps over a rolling 24h window (0003 RN-8).
+  SIGNUP_MAX_SENDS_PER_DAY: Type.Number({ default: 10 }),
+  SIGNUP_MAX_FAILURES_PER_DAY: Type.Number({ default: 20 }),
   RESET_TOKEN_TTL_HOURS: Type.Number({ default: 1 }),
   // Present in local dev; deployed stages read it from SSM (JWT_SECRET_PARAM).
   JWT_SECRET: Type.Optional(Type.String()),

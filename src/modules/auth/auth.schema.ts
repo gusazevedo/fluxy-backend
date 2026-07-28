@@ -1,24 +1,7 @@
 import { Type } from '@fastify/type-provider-typebox'
+import { Email, Password, TokenString } from './field.schema.js'
 
-// Pragmatic e-mail pattern (real validation happens by sending the message).
-const Email = Type.String({
-  pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$',
-  maxLength: 320,
-})
-const Password = Type.String({ minLength: 8, maxLength: 200 })
-const TokenString = Type.String({ minLength: 1 })
-const OtpCode = Type.String({ pattern: '^[0-9]{6}$' })
-const Name = Type.String({ minLength: 1, maxLength: 100 })
-
-export const RegisterBody = Type.Object({
-  email: Email,
-  firstName: Name,
-  lastName: Name,
-  password: Password,
-})
 export const LoginBody = Type.Object({ email: Email, password: Password })
-export const VerifyEmailBody = Type.Object({ email: Email, code: OtpCode })
-export const ResendVerificationBody = Type.Object({ email: Email })
 export const RefreshBody = Type.Object({ refreshToken: TokenString })
 export const LogoutBody = Type.Object({ refreshToken: TokenString })
 export const ForgotPasswordBody = Type.Object({ email: Email })

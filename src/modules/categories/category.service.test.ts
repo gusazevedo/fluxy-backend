@@ -19,7 +19,6 @@ function makeCategory(over: Partial<Category> = {}): Category {
 function makeRepo(over: Partial<CategoryRepository> = {}): CategoryRepository {
   return {
     create: vi.fn(),
-    insertMany: vi.fn(),
     findById: vi.fn(),
     findActiveByName: vi.fn(),
     list: vi.fn(),

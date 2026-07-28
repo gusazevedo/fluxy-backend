@@ -70,6 +70,45 @@ export const authTokens = pgTable(
   ],
 )
 
+/**
+ * Signup in progress (0003 v2.0 §4). The account only exists once
+ * `signup/complete` runs, so this row — not `users` — carries the state
+ * between the three steps. One row per e-mail: restarting a signup updates it.
+ */
+export const signupVerifications = pgTable(
+  'signup_verifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Stored lowercased, like users.email.
+    email: text('email').notNull(),
+    otpHash: text('otp_hash').notNull(),
+    // Wrong attempts against the CURRENT code; reset when a new code is sent.
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    // Base for the resend cooldown; updatedAt would drift on failed attempts.
+    lastSentAt: timestamp('last_sent_at', { withTimezone: true }).notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    signupTokenHash: text('signup_token_hash'),
+    signupTokenExpiresAt: timestamp('signup_token_expires_at', { withTimezone: true }),
+    // Per-email 24h caps (RN-8). Restarting a signup does NOT reset these —
+    // otherwise the per-code `attempts` limit would be trivially bypassable.
+    sendsInWindow: integer('sends_in_window').notNull().default(0),
+    failuresInWindow: integer('failures_in_window').notNull().default(0),
+    windowStartedAt: timestamp('window_started_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('signup_verifications_email_unique').on(t.email),
+    // Nullable: Postgres allows many NULLs in a unique index, so pending rows
+    // without a token don't collide.
+    uniqueIndex('signup_verifications_token_hash_unique').on(t.signupTokenHash),
+  ],
+)
+
+export type SignupVerification = typeof signupVerifications.$inferSelect
+export type NewSignupVerification = typeof signupVerifications.$inferInsert
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type RefreshToken = typeof refreshTokens.$inferSelect
