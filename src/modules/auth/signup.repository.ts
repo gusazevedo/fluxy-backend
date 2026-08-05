@@ -129,12 +129,18 @@ export function createSignupRepository(db: Database): SignupRepository {
       const names = input.categories.map((c) => c.name)
       const kinds = input.categories.map((c) => c.kind)
 
+      // `now` goes in as an ISO string, not a Date: a raw `sql` template carries no
+      // column type, so Drizzle never applies the `timestamp` mapper and hands the
+      // Date straight to the driver, which postgres.js rejects. A `::timestamptz`
+      // cast does not help — it breaks while serializing the param, before the SQL
+      // runs. pglite accepts the Date, so the test suite cannot catch this.
+
       const result = await db.execute(sql`
         WITH consumed AS (
           DELETE FROM signup_verifications
            WHERE signup_token_hash = ${input.signupTokenHash}
              AND verified_at IS NOT NULL
-             AND signup_token_expires_at > ${input.now}
+             AND signup_token_expires_at > ${input.now.toISOString()}
           RETURNING email
         ), new_user AS (
           INSERT INTO users (email, first_name, last_name, password_hash, email_verified)
